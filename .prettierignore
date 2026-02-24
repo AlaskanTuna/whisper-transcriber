@@ -1,0 +1,18 @@
+# BMAD
+# ====
+
+_bmad
+_bmad-output
+
+# Agents
+# ======
+
+.claude
+.gemini
+.github
+.vscode
+
+# Documentation
+# =============
+
+docs/prompts
