@@ -1,6 +1,7 @@
 # src/transcriber.py
 
 from pathlib import Path
+from typing import Optional
 
 import whisper
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, MofNCompleteColumn
@@ -20,7 +21,7 @@ def transcribe_file(
     model: whisper.Whisper,
     input_path: Path,
     output_path: Path,
-    language: str,
+    language: Optional[str],
     task: str,
 ) -> bool:
     """
@@ -29,7 +30,7 @@ def transcribe_file(
     @model: Loaded Whisper model instance.
     @input_path: Path to input audio file.
     @output_path: Path to save transcription output.
-    @language: Language of audio (e.g. 'Japanese').
+    @language: Language of audio, or None for auto-detection.
     @task: Either 'transcribe' or 'translate'.
     @return: True on success, False on failure.
     """
@@ -43,7 +44,9 @@ def transcribe_file(
 
         with open(output_path, "w", encoding="utf-8") as f:
             for segment in result["segments"]:
-                timestamp = f"[{segment['start']:.1f}s]"
+                total = int(segment["start"])
+                h, m, s = total // 3600, (total % 3600) // 60, total % 60
+                timestamp = f"[{h:02d}:{m:02d}:{s:02d}]"
                 text = segment["text"].strip()
                 f.write(f"{timestamp} {text}\n\n")
 
@@ -52,33 +55,25 @@ def transcribe_file(
         return False
 
 
-def process_directory(
+def process_queue(
     model: whisper.Whisper,
-    input_dir: Path,
+    files: list[Path],
     output_dir: Path,
-    language: str,
+    language: Optional[str],
     task: str,
-    file_extension: str,
-) -> int:
+) -> list[dict]:
     """
-    Process all matching audio files in a directory.
+    Process a queue of audio files sequentially.
 
     @model: Loaded Whisper model instance.
-    @input_dir: Directory containing audio files.
+    @files: List of audio file Paths to transcribe.
     @output_dir: Directory to write transcript files.
-    @language: Language of audio.
+    @language: Language of audio, or None for auto-detection.
     @task: Either 'transcribe' or 'translate'.
-    @file_extension: Audio file extension to match (e.g. '.m4a').
-    @return: Number of files successfully transcribed.
+    @return: List of dicts with keys 'file' (str) and 'success' (bool).
     """
-    input_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    files = sorted(input_dir.glob(f"*{file_extension}"))
-    if not files:
-        return 0
-
-    success_count = 0
+    results: list[dict] = []
 
     with Progress(
         SpinnerColumn(),
@@ -94,10 +89,8 @@ def process_directory(
         for file_path in files:
             progress.update(task_id, filename=file_path.name)
             output_path = output_dir / f"{file_path.stem}.txt"
-
-            if transcribe_file(model, file_path, output_path, language, task):
-                success_count += 1
-
+            success = transcribe_file(model, file_path, output_path, language, task)
+            results.append({"file": file_path.name, "success": success})
             progress.advance(task_id)
 
-    return success_count
+    return results

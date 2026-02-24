@@ -6,9 +6,12 @@ A CLI tool that uses OpenAI's Whisper to batch-transcribe audio files. An intera
 
 ## Features
 
-- **Interactive TUI** — configure all settings at runtime (language, model size, task, file extension, directories)
-- **Multi-language** — 17 curated languages plus free-text entry for any Whisper-supported language
-- **Batch processing** — transcribes all matching audio files in a directory
+- **Interactive TUI** — language, model size, task, and per-file selection at runtime
+- **Auto language detection** — Whisper auto-detects from the first 30 seconds, or choose from 17 curated languages
+- **Per-file selection** — pick one or more audio files via multi-select checkbox
+- **Queue processing** — files are transcribed sequentially with per-file error recovery
+- **Operation summary** — results table showing per-file success/failure after each run
+- **Step navigation** — Back/Exit options on every prompt; summary rejection returns to start
 - **Minimal output** — `rich` progress bar only, no verbose transcription text
 - **Persistent menu** — returns to setup after each run or error; Ctrl+C to exit
 
@@ -22,7 +25,7 @@ src/
 ├── __main__.py      # Entry point and main loop
 ├── config.py        # Defaults and option lists
 ├── transcriber.py   # Whisper transcription logic
-└── ui.py            # TUI prompts
+└── ui.py            # TUI prompts with step navigation
 audio/               # Input audio files
 transcripts/         # Output transcripts
 ```
@@ -56,19 +59,6 @@ source venv/bin/activate
 python -m src
 ```
 
-The TUI prompts you through:
-
-1. Language selection
-2. Model size
-3. Task (transcribe / translate)
-4. Audio file extension
-5. Input and output directories
-6. Confirmation summary
-
-After transcription completes (or if an error occurs), you're returned to the menu. Press **Ctrl+C** at any point to exit.
-
-Place audio files in `audio/` at the repo root. Transcripts are written to `transcripts/` (auto-created).
-
 ---
 
 ## Output Format
@@ -76,9 +66,9 @@ Place audio files in `audio/` at the repo root. Transcripts are written to `tran
 Each transcript is a `.txt` file with timestamped segments:
 
 ```
-[0.0s] First segment of transcribed text.
+[00:00:00] First segment of transcribed text.
 
-[3.2s] Second segment continues here.
+[00:00:03] Second segment continues here.
 ```
 
 ---
@@ -87,18 +77,18 @@ Each transcript is a `.txt` file with timestamped segments:
 
 From the [Whisper repo](https://github.com/openai/whisper):
 
-| Model | VRAM | Relative Speed | Accuracy |
-|-------|------|----------------|----------|
-| tiny | ~1 GB | ~10x | Lower |
-| base | ~1 GB | ~7x | Fair |
-| small | ~2 GB | ~4x | Good |
-| medium | ~5 GB | ~2x | Better |
-| large | ~10 GB | 1x | Best |
+| Model  | VRAM   | Relative Speed | Accuracy |
+| ------ | ------ | -------------- | -------- |
+| tiny   | ~1 GB  | ~10x           | Lower    |
+| base   | ~1 GB  | ~7x            | Fair     |
+| small  | ~2 GB  | ~4x            | Good     |
+| medium | ~5 GB  | ~2x            | Better   |
+| large  | ~10 GB | 1x             | Best     |
 
 ---
 
 ## Supported Formats
 
-`.m4a` (default), `.mp3`, `.wav`, `.flac`, `.ogg`
+`.m4a`, `.mp3`, `.wav`, `.flac`, `.ogg`
 
 ---

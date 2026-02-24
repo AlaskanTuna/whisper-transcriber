@@ -9,6 +9,8 @@ DEFAULT_OUTPUT_DIR: Path = ROOT / "transcripts"
 MODEL_SIZES: list[str] = ["tiny", "base", "small", "medium", "large"]
 DEFAULT_MODEL_SIZE: str = "small"
 
+AUTO_DETECT: str = "Auto (detect)"
+
 LANGUAGES: list[str] = [
     "English",
     "Japanese",
@@ -28,10 +30,9 @@ LANGUAGES: list[str] = [
     "Thai",
     "Indonesian",
 ]
-DEFAULT_LANGUAGE: str = "Japanese"
+DEFAULT_LANGUAGE: str = AUTO_DETECT
 
 TASKS: list[str] = ["transcribe", "translate"]
 DEFAULT_TASK: str = "transcribe"
 
 FILE_EXTENSIONS: list[str] = [".m4a", ".mp3", ".wav", ".flac", ".ogg"]
-DEFAULT_FILE_EXTENSION: str = ".m4a"

@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from typing import Optional
 
 import questionary
 from rich.console import Console
@@ -11,6 +12,11 @@ from src import config
 
 console = Console()
 
+_BACK = "BACK"
+_EXIT = "EXIT"
+_BACK_LABEL = [("bold", "BACK")]
+_EXIT_LABEL = [("bold", "EXIT")]
+
 
 def clear_screen() -> None:
     """
@@ -19,26 +25,36 @@ def clear_screen() -> None:
     os.system("cls" if os.name == "nt" else "clear")
 
 
-def _select_language() -> str:
+def _scan_audio_files() -> list[Path]:
+    """
+    Scan the input directory for files matching any supported extension.
+
+    @return: Sorted list of audio file Paths found in DEFAULT_INPUT_DIR.
+    """
+    files: list[Path] = []
+    for ext in config.FILE_EXTENSIONS:
+        files.extend(config.DEFAULT_INPUT_DIR.glob(f"*{ext}"))
+    return sorted(set(files), key=lambda p: p.name.lower())
+
+
+def _select_language() -> Optional[str]:
     """
     Prompt user to select a transcription language.
 
-    @return: Chosen language string.
+    @return: Language string, None for auto-detect, or _EXIT/_BACK sentinel.
     """
-    choices = config.LANGUAGES + ["Other (type manually)"]
+    choices = [config.AUTO_DETECT] + config.LANGUAGES + [
+        questionary.Choice(title=_EXIT_LABEL, value=_EXIT)
+    ]
     answer = questionary.select(
         "Select language:",
         choices=choices,
         default=config.DEFAULT_LANGUAGE,
+        instruction="",
     ).ask()
 
     if answer is None:
         raise KeyboardInterrupt
-
-    if answer == "Other (type manually)":
-        answer = questionary.text("Enter language name (e.g. 'Polish'):").ask()
-        if not answer:
-            raise KeyboardInterrupt
 
     return answer
 
@@ -47,12 +63,16 @@ def _select_model_size() -> str:
     """
     Prompt user to select a Whisper model size.
 
-    @return: Chosen model size string.
+    @return: Model size string or _BACK sentinel.
     """
+    choices = config.MODEL_SIZES + [
+        questionary.Choice(title=_BACK_LABEL, value=_BACK)
+    ]
     answer = questionary.select(
         "Select model size:",
-        choices=config.MODEL_SIZES,
+        choices=choices,
         default=config.DEFAULT_MODEL_SIZE,
+        instruction="",
     ).ask()
 
     if answer is None:
@@ -65,12 +85,16 @@ def _select_task() -> str:
     """
     Prompt user to select the transcription task.
 
-    @return: Either 'transcribe' or 'translate'.
+    @return: 'transcribe', 'translate', or _BACK sentinel.
     """
+    choices = config.TASKS + [
+        questionary.Choice(title=_BACK_LABEL, value=_BACK)
+    ]
     answer = questionary.select(
         "Select task:",
-        choices=config.TASKS,
+        choices=choices,
         default=config.DEFAULT_TASK,
+        instruction="",
     ).ask()
 
     if answer is None:
@@ -79,41 +103,32 @@ def _select_task() -> str:
     return answer
 
 
-def _select_file_extension() -> str:
+def _select_files(available: list[Path]) -> list[Path] | str:
     """
-    Prompt user to select an audio file extension.
+    Prompt user to select one or more audio files via checkbox.
 
-    @return: Chosen file extension string (e.g. '.m4a').
+    @available: List of audio file Paths to choose from.
+    @return: List of selected Paths, or _BACK sentinel.
     """
-    answer = questionary.select(
-        "Select audio file extension:",
-        choices=config.FILE_EXTENSIONS,
-        default=config.DEFAULT_FILE_EXTENSION,
+    choices = [questionary.Choice(f.name, value=str(f)) for f in available]
+    choices.append(questionary.Choice(title=_BACK_LABEL, value=_BACK))
+
+    answer = questionary.checkbox(
+        "Select audio files (space to toggle, enter to confirm):",
+        choices=choices,
+        instruction="",
     ).ask()
 
     if answer is None:
         raise KeyboardInterrupt
 
-    return answer
+    if _BACK in answer:
+        return _BACK
 
+    if not answer:
+        return _BACK
 
-def _confirm_directory(label: str, default: Path) -> Path:
-    """
-    Prompt user to confirm or change a directory path.
-
-    @label: Display label for the prompt (e.g. 'Input directory').
-    @default: Default directory path.
-    @return: Confirmed Path.
-    """
-    answer = questionary.text(
-        f"{label}:",
-        default=str(default),
-    ).ask()
-
-    if answer is None:
-        raise KeyboardInterrupt
-
-    return Path(answer)
+    return [Path(p) for p in answer]
 
 
 def _show_summary(settings: dict) -> bool:
@@ -127,12 +142,13 @@ def _show_summary(settings: dict) -> bool:
     table.add_column("Setting", style="cyan")
     table.add_column("Value", style="green")
 
-    table.add_row("Language", settings["language"])
+    lang_display = settings["language"] if settings["language"] else "Auto (detect)"
+    table.add_row("Language", lang_display)
     table.add_row("Model Size", settings["model_size"])
     table.add_row("Task", settings["task"])
-    table.add_row("File Extension", settings["file_extension"])
-    table.add_row("Input Directory", str(settings["input_dir"]))
-    table.add_row("Output Directory", str(settings["output_dir"]))
+    table.add_row("Files", str(len(settings["files"])))
+    table.add_row("Input Directory", str(config.DEFAULT_INPUT_DIR))
+    table.add_row("Output Directory", str(config.DEFAULT_OUTPUT_DIR))
 
     console.print()
     console.print(table)
@@ -146,35 +162,75 @@ def _show_summary(settings: dict) -> bool:
     return confirm
 
 
-def run_setup() -> dict:
+def run_setup() -> dict | None:
     """
-    Run the full TUI setup flow.
+    Run the full TUI setup flow with step-based Back/Exit navigation.
 
-    @return: Config dict with keys: language, model_size, task, file_extension, input_dir, output_dir.
+    @return: Config dict with keys: language, model_size, task, files.
+             Returns None if user chooses Exit.
     """
-    console.print("\n[bold cyan]=== Whisper Transcriber ===[/bold cyan]\n")
+    step = 0
+    language: Optional[str] = None
+    model_size: str = ""
+    task: str = ""
+    files: list[Path] = []
 
-    language = _select_language()
-    model_size = _select_model_size()
-    task = _select_task()
-    file_extension = _select_file_extension()
-    input_dir = _confirm_directory("Input directory", config.DEFAULT_INPUT_DIR)
-    output_dir = _confirm_directory("Output directory", config.DEFAULT_OUTPUT_DIR)
+    while True:
+        if step == 0:
+            clear_screen()
+            console.print("\n[bold cyan]=== Whisper Transcriber ===[/bold cyan]\n")
+            answer = _select_language()
+            if answer == _EXIT:
+                return None
+            language = None if answer == config.AUTO_DETECT else answer
+            step = 1
 
-    settings = {
-        "language": language,
-        "model_size": model_size,
-        "task": task,
-        "file_extension": file_extension,
-        "input_dir": input_dir,
-        "output_dir": output_dir,
-    }
+        elif step == 1:
+            answer = _select_model_size()
+            if answer == _BACK:
+                step = 0
+                continue
+            model_size = answer
+            step = 2
 
-    # Clear before showing summary
-    clear_screen()
+        elif step == 2:
+            answer = _select_task()
+            if answer == _BACK:
+                step = 1
+                continue
+            task = answer
+            step = 3
 
-    if not _show_summary(settings):
-        console.print("[yellow]Aborted.[/yellow]")
-        raise SystemExit(0)
+        elif step == 3:
+            available = _scan_audio_files()
+            if not available:
+                console.print(
+                    f"\n[yellow]No supported audio files found in "
+                    f"{config.DEFAULT_INPUT_DIR}[/yellow]"
+                )
+                console.print("[cyan]Supported formats:[/cyan] "
+                              + ", ".join(config.FILE_EXTENSIONS))
+                input("\nPress Enter to return to menu...")
+                return None
 
-    return settings
+            answer = _select_files(available)
+            if answer == _BACK:
+                step = 2
+                continue
+            files = answer
+            step = 4
+
+        elif step == 4:
+            clear_screen()
+            settings = {
+                "language": language,
+                "model_size": model_size,
+                "task": task,
+                "files": files,
+            }
+
+            if not _show_summary(settings):
+                step = 0
+                continue
+
+            return settings
