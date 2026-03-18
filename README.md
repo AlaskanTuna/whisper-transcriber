@@ -16,7 +16,42 @@ A CLI tool that uses OpenAI's Whisper to batch-transcribe audio files with an op
 - **Overwrite protection** -- prompts before overwriting existing transcripts
 - **Fast startup** -- Whisper/torch are lazy-loaded; TUI appears instantly
 - **GPU detection** -- shows compute device and elapsed time after transcription
+- **Home page** -- ASCII art dashboard with stats, file management, and interactive settings
+- **File management** -- view transcript previews, delete files from audio/ and transcripts/
+- **Settings editor** -- change defaults interactively without editing config files
+- **YAML config** -- all user presets in `config.yaml`, editable via TUI or directly
 - **One-command setup** -- `setup.sh` handles all dependencies, system checks, and API key config
+
+---
+
+## Requirements
+
+### Hardware
+
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| CPU | Any modern x86_64 | Multi-core for faster processing |
+| RAM | 4 GB | 8 GB+ (for medium/large models) |
+| GPU | Not required | NVIDIA CUDA-capable |
+| Disk | ~5 GB | ~10 GB (models cached locally) |
+
+#### VRAM by Model Size
+
+| Model | VRAM Required |
+|-------|--------------|
+| tiny | ~1 GB |
+| base | ~1 GB |
+| small | ~2 GB |
+| medium | ~5 GB |
+| large | ~10 GB |
+
+CPU-only transcription works for all model sizes but is significantly slower.
+
+### Software
+
+- Python 3.10 - 3.13
+- ffmpeg
+- uv (recommended) or pip
 
 ---
 
@@ -93,10 +128,14 @@ Summaries are saved as `filename_summary.txt` alongside the transcript `filename
 src/
 ├── __init__.py      # Package marker
 ├── __main__.py      # Entry point and main loop
-├── config.py        # Defaults and option lists
+├── config.py        # YAML config loader with fallback defaults
+├── files.py         # File management (view, delete)
+├── home.py          # Home page with ASCII art and stats
+├── settings.py      # Interactive settings editor
 ├── summarizer.py    # Gemini AI summarization
 ├── transcriber.py   # Whisper transcription logic
 └── ui.py            # TUI prompts with step navigation
+config.yaml          # User-configurable presets
 setup.sh             # One-time setup script
 audio/               # Input audio files (generated at runtime)
 transcripts/         # Output transcripts (generated at runtime)

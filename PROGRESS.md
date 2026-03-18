@@ -69,3 +69,12 @@
 - "Delete file(s)": multi-select from both audio/ and transcripts/, confirmation required.
 - File listing table shows directory, count, and total size.
 - Accessible from home page "Manage Files" option.
+
+## [2026-03-18] Settings + Hardware Requirements
+
+- Implemented `src/settings.py` with interactive config editor.
+- Editable settings: model size, language, task, summary style, Gemini model.
+- List settings (languages, file extensions) shown as read-only with hint to edit config.yaml.
+- Changes persisted to `config.yaml` immediately via `save_config()`.
+- Added hardware/software requirements section to README (CPU, RAM, GPU, VRAM, disk).
+- Updated project structure in README with all new modules.
