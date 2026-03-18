@@ -39,7 +39,7 @@ def _show_context(
         console.print(f"[dim]{' | '.join(parts)}[/dim]")
 
 
-def _format_size(size_bytes: int) -> str:
+def format_size(size_bytes: int) -> str:
     for unit in ("B", "KB", "MB", "GB"):
         if size_bytes < 1024:
             return f"{size_bytes:.1f} {unit}" if unit != "B" else f"{size_bytes} B"
@@ -129,7 +129,7 @@ def _select_summary_style() -> str:
 def _select_files(available: list[Path]) -> list[Path] | str:
     choices = []
     for f in available:
-        size = _format_size(f.stat().st_size)
+        size = format_size(f.stat().st_size)
         has_transcript = (config.DEFAULT_OUTPUT_DIR / f"{f.stem}.txt").exists()
         label = f"{f.name} ({size})"
         if has_transcript:

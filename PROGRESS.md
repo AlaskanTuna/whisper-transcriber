@@ -43,3 +43,12 @@
 - Added `get_config()` and `save_config()` for runtime config access and persistence.
 - Moved Gemini model name from hardcoded `summarizer.py` constant to config.
 - Added `pyyaml` dependency.
+
+## [2026-03-18] Home Page
+
+- New `src/home.py` module with ASCII art header, program stats, and main menu.
+- Stats: audio/transcript/summary counts, average transcript size, recent files.
+- Home page options: "Start", "Manage Files", "Settings", "Exit".
+- `__main__.py` restructured to dispatch from home page loop.
+- Renamed `_format_size` to `format_size` in `ui.py` (public API for home.py).
+- Stub modules for `files.py` and `settings.py` (implemented in later commits).

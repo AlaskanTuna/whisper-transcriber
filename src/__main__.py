@@ -10,6 +10,7 @@ from rich.table import Table
 from src import config
 from src.config import DEFAULT_INPUT_DIR, DEFAULT_OUTPUT_DIR
 from src.ui import run_setup, clear_screen
+from src.home import show_home
 from src.summarizer import load_env, is_available as summarize_available
 
 console = Console()
@@ -103,7 +104,7 @@ def _run_transcription(settings: dict) -> None:
         console.print(f"[dim]Completed in {seconds}s[/dim]")
 
     # Summarize if requested
-    if "summarize" in settings["task"] and results:
+    if "summarize" in settings["task"] and settings["task"] != "summarize":
         _run_summarization(results, settings["summary_style"])
 
     _show_results(results)
@@ -143,8 +144,7 @@ def _run_summarization(results: list[dict], style: str) -> None:
 
 def main() -> None:
     """
-    Main loop -- runs TUI setup then transcription.
-    Returns to menu on completion or error.
+    Main loop -- home page dispatches to Start, Manage Files, or Settings.
     """
     DEFAULT_INPUT_DIR.mkdir(parents=True, exist_ok=True)
     DEFAULT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -154,15 +154,27 @@ def main() -> None:
 
     while True:
         try:
-            clear_screen()
-            settings = run_setup(summarize_available=has_summarize)
+            choice = show_home()
 
-            if settings is None:
+            if choice in (None, "Exit"):
                 break
 
-            _run_transcription(settings)
-            console.print()
-            input("Press Enter to return to menu...")
+            elif choice == "Start":
+                settings = run_setup(summarize_available=has_summarize)
+                if settings is None:
+                    continue
+                _run_transcription(settings)
+                console.print()
+                input("Press Enter to return to menu...")
+
+            elif choice == "Manage Files":
+                from src.files import run_manage_files  # pylint: disable=import-outside-toplevel
+                run_manage_files()
+
+            elif choice == "Settings":
+                from src.settings import run_settings  # pylint: disable=import-outside-toplevel
+                run_settings()
+
         except KeyboardInterrupt:
             console.print("\n[yellow]Cancelled.[/yellow]")
             break
