@@ -142,6 +142,66 @@ def _run_summarization(results: list[dict], style: str) -> None:
             progress.advance(task_id)
 
 
+def _run_standalone_summarization(settings: dict) -> None:
+    """Summarize existing transcript files without running Whisper."""
+    from src.summarizer import summarize_file
+    from rich.progress import Progress, SpinnerColumn, TextColumn, MofNCompleteColumn
+
+    clear_screen()
+    console.print()
+
+    transcript_files = settings["transcript_files"]
+    style = settings["summary_style"]
+    results: list[dict] = []
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        MofNCompleteColumn(),
+        TextColumn("{task.fields[filename]}"),
+    ) as progress:
+        task_id = progress.add_task(
+            "Summarizing", total=len(transcript_files), filename=""
+        )
+
+        for tpath in transcript_files:
+            progress.update(task_id, filename=tpath.name)
+            summary_path = tpath.parent / f"{tpath.stem}_summary.txt"
+            success, error = summarize_file(tpath, summary_path, style)
+            results.append({"file": tpath.name, "success": success, "error": error})
+            progress.advance(task_id)
+
+    _show_summary_results(results)
+
+
+def _show_summary_results(results: list[dict]) -> None:
+    """Display results table for standalone summarization."""
+    table = Table(title="Summary Results")
+    table.add_column("File", style="cyan")
+    table.add_column("Status", style="green")
+
+    succeeded = 0
+    failed = 0
+
+    for r in results:
+        if r["success"]:
+            table.add_row(r["file"], "[green]Done[/green]")
+            succeeded += 1
+        else:
+            status = f"[red]Failed: {r['error']}[/red]" if r.get("error") else "[red]Failed[/red]"
+            table.add_row(r["file"], status)
+            failed += 1
+
+    console.print()
+    console.print(table)
+    console.print()
+    console.print(
+        f"[bold]{succeeded} succeeded, {failed} failed "
+        f"out of {len(results)}[/bold]"
+    )
+    console.print(f"Output directory: {DEFAULT_OUTPUT_DIR}")
+
+
 def main() -> None:
     """
     Main loop -- home page dispatches to Start, Manage Files, or Settings.
@@ -163,7 +223,10 @@ def main() -> None:
                 settings = run_setup(summarize_available=has_summarize)
                 if settings is None:
                     continue
-                _run_transcription(settings)
+                if settings["task"] == config.STANDALONE_SUMMARY_TASK:
+                    _run_standalone_summarization(settings)
+                else:
+                    _run_transcription(settings)
                 console.print()
                 input("Press Enter to return to menu...")
 

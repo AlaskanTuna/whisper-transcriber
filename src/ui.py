@@ -29,7 +29,7 @@ def _show_context(
     language: Optional[str], model_size: str, task: str, past_language_step: bool = True
 ) -> None:
     parts = []
-    if past_language_step:
+    if past_language_step and (language is not None or model_size):
         parts.append(f"Language: {language or 'Auto'}")
     if model_size:
         parts.append(f"Model: {model_size}")
@@ -52,6 +52,15 @@ def _scan_audio_files() -> list[Path]:
     for ext in config.FILE_EXTENSIONS:
         files.extend(config.DEFAULT_INPUT_DIR.glob(f"*{ext}"))
     return sorted(set(files), key=lambda p: p.name.lower())
+
+
+def _scan_transcript_files() -> list[Path]:
+    """Scan transcripts/ for .txt files, excluding *_summary.txt."""
+    all_txt = list(config.DEFAULT_OUTPUT_DIR.glob("*.txt"))
+    return sorted(
+        [f for f in all_txt if not f.name.endswith("_summary.txt")],
+        key=lambda p: p.name.lower(),
+    )
 
 
 def _select_language() -> Optional[str]:
@@ -90,7 +99,13 @@ def _select_model_size() -> str:
 
 
 def _select_task(summarize_available: bool) -> str:
-    task_list = config.TASKS + config.SUMMARY_TASKS if summarize_available else config.TASKS
+    task_list = list(config.TASKS)
+    if summarize_available:
+        task_list += config.SUMMARY_TASKS
+        task_list.append(questionary.Separator())
+        task_list.append(
+            questionary.Choice(config.STANDALONE_SUMMARY_TASK, value=config.STANDALONE_SUMMARY_TASK)
+        )
     choices = task_list + [
         questionary.Choice(title=_BACK_LABEL, value=_BACK),
         questionary.Choice(title=_EXIT_LABEL, value=_EXIT),
@@ -159,19 +174,62 @@ def _select_files(available: list[Path]) -> list[Path] | str:
     return [Path(p) for p in answer if p not in (_BACK, _EXIT)]
 
 
+def _select_transcript_files(available: list[Path]) -> list[Path] | str:
+    """Select transcript files for standalone summarization."""
+    choices = []
+    for f in available:
+        size = format_size(f.stat().st_size)
+        has_summary = (f.parent / f"{f.stem}_summary.txt").exists()
+        label = f"{f.name} ({size})"
+        if has_summary:
+            label += " [has summary]"
+        choices.append(questionary.Choice(label, value=str(f)))
+    choices.append(questionary.Choice(title=_BACK_LABEL, value=_BACK))
+    choices.append(questionary.Choice(title=_EXIT_LABEL, value=_EXIT))
+
+    answer = questionary.checkbox(
+        "Select transcripts to summarize (space to toggle, enter to confirm):",
+        choices=choices,
+        instruction="",
+    ).ask()
+
+    if answer is None:
+        raise KeyboardInterrupt
+
+    if _EXIT in answer:
+        return _EXIT
+
+    if _BACK in answer:
+        return _BACK
+
+    if not answer:
+        return _BACK
+
+    return [Path(p) for p in answer if p not in (_BACK, _EXIT)]
+
+
 def _show_summary(settings: dict) -> bool:
     table = Table(title="Configuration Summary")
     table.add_column("Setting", style="cyan")
     table.add_column("Value", style="green")
 
-    lang_display = settings["language"] if settings["language"] else "Auto (detect)"
-    table.add_row("Language", lang_display)
-    table.add_row("Model Size", settings["model_size"])
+    is_summarize_only = settings["task"] == config.STANDALONE_SUMMARY_TASK
+
+    if not is_summarize_only:
+        lang_display = settings["language"] if settings["language"] else "Auto (detect)"
+        table.add_row("Language", lang_display)
+        table.add_row("Model Size", settings["model_size"])
+
     table.add_row("Task", settings["task"])
+
     if settings.get("summary_style"):
         table.add_row("Summary Style", settings["summary_style"])
-    table.add_row("Files", str(len(settings["files"])))
-    table.add_row("Input Directory", str(config.DEFAULT_INPUT_DIR))
+
+    if is_summarize_only:
+        table.add_row("Transcript Files", str(len(settings.get("transcript_files", []))))
+    else:
+        table.add_row("Files", str(len(settings["files"])))
+
     table.add_row("Output Directory", str(config.DEFAULT_OUTPUT_DIR))
 
     console.print()
@@ -186,30 +244,35 @@ def _show_summary(settings: dict) -> bool:
     return confirm
 
 
-def _build_steps(has_summary_style: bool) -> list[str]:
-    """Build dynamic step name list based on active features."""
+def _build_steps(task: str) -> list[str]:
+    """Build dynamic step name list based on the selected task."""
+    if task == config.STANDALONE_SUMMARY_TASK:
+        return ["Task", "Transcript Files", "Summary Style", "Confirm"]
+
     steps = ["Language", "Model", "Task"]
-    if has_summary_style:
+    if "summarize" in task:
         steps.append("Summary Style")
     steps.extend(["Files", "Confirm"])
     return steps
 
 
 def run_setup(summarize_available: bool = False) -> dict | None:
-    # Steps are: Language(0), Model(1), Task(2), [SummaryStyle(3)], Files, Confirm
-    # We use named states instead of fragile indices for the conditional step.
     state = "language"
     language: Optional[str] = None
     model_size: str = ""
     task: str = ""
     summary_style: Optional[str] = None
     files: list[Path] = []
+    transcript_files: list[Path] = []
+
+    def _is_summarize_only() -> bool:
+        return task == config.STANDALONE_SUMMARY_TASK
 
     def _needs_summary_style() -> bool:
         return "summarize" in task
 
     def _header(name: str) -> None:
-        steps = _build_steps(_needs_summary_style())
+        steps = _build_steps(task)
         idx = steps.index(name) + 1
         _step_header(idx, len(steps), name)
 
@@ -217,7 +280,9 @@ def run_setup(summarize_available: bool = False) -> dict | None:
         if state == "language":
             clear_screen()
             console.print("\n[bold cyan]=== Whisper Transcriber ===[/bold cyan]")
-            _header("Language")
+            # For initial entry, show task step if we haven't picked a task yet
+            # Otherwise show language step
+            _step_header(1, 5, "Language")
             answer = _select_language()
             if answer == _EXIT:
                 return None
@@ -225,7 +290,7 @@ def run_setup(summarize_available: bool = False) -> dict | None:
             state = "model"
 
         elif state == "model":
-            _header("Model")
+            _step_header(2, 5, "Model")
             _show_context(language, "", "")
             answer = _select_model_size()
             if answer == _BACK:
@@ -237,7 +302,11 @@ def run_setup(summarize_available: bool = False) -> dict | None:
             state = "task"
 
         elif state == "task":
-            _header("Task")
+            if _is_summarize_only() or not model_size:
+                # First time or re-entering from summarize-only back
+                _step_header(3, 5, "Task") if model_size else _step_header(1, 4, "Task")
+            else:
+                _step_header(3, len(_build_steps(task or "transcribe")), "Task")
             _show_context(language, model_size, "")
             answer = _select_task(summarize_available)
             if answer == _BACK:
@@ -246,19 +315,47 @@ def run_setup(summarize_available: bool = False) -> dict | None:
             if answer == _EXIT:
                 return None
             task = answer
-            state = "summary_style" if _needs_summary_style() else "files"
+
+            if _is_summarize_only():
+                state = "transcript_files"
+            elif _needs_summary_style():
+                state = "summary_style"
+            else:
+                state = "files"
+
+        elif state == "transcript_files":
+            _header("Transcript Files")
+            _show_context("", "", task, past_language_step=False)
+            available = _scan_transcript_files()
+            if not available:
+                console.print(
+                    f"\n[yellow]No transcript files found in "
+                    f"{config.DEFAULT_OUTPUT_DIR}[/yellow]"
+                )
+                input("\nPress Enter to go back...")
+                state = "task"
+                continue
+
+            answer = _select_transcript_files(available)
+            if answer == _BACK:
+                state = "task"
+                continue
+            if answer == _EXIT:
+                return None
+            transcript_files = answer
+            state = "summary_style"
 
         elif state == "summary_style":
             _header("Summary Style")
             _show_context(language, model_size, task)
             answer = _select_summary_style()
             if answer == _BACK:
-                state = "task"
+                state = "transcript_files" if _is_summarize_only() else "task"
                 continue
             if answer == _EXIT:
                 return None
             summary_style = config.SUMMARY_STYLE_MAP[answer]
-            state = "files"
+            state = "confirm" if _is_summarize_only() else "files"
 
         elif state == "files":
             _header("Files")
@@ -296,10 +393,14 @@ def run_setup(summarize_available: bool = False) -> dict | None:
                 "task": task,
                 "summary_style": summary_style,
                 "files": files,
+                "transcript_files": transcript_files,
             }
 
             if not _show_summary(settings):
-                state = "files"
+                if _is_summarize_only():
+                    state = "summary_style"
+                else:
+                    state = "files"
                 continue
 
             return settings

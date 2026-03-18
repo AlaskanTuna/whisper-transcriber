@@ -52,3 +52,12 @@
 - `__main__.py` restructured to dispatch from home page loop.
 - Renamed `_format_size` to `format_size` in `ui.py` (public API for home.py).
 - Stub modules for `files.py` and `settings.py` (implemented in later commits).
+
+## [2026-03-18] Standalone Summarize Task
+
+- Added standalone "summarize" option in TUI task selection (shown when Gemini API key is set).
+- Choosing "summarize" bypasses language/model selection entirely (no Whisper loading).
+- New flow: Task -> Transcript Files -> Summary Style -> Confirm.
+- New `_scan_transcript_files()` and `_select_transcript_files()` with `[has summary]` indicators.
+- Dedicated `_run_standalone_summarization()` and `_show_summary_results()` in `__main__.py`.
+- `_show_summary()` adapts display for summarize-only settings (no language/model rows).
