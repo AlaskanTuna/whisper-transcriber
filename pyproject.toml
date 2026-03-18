@@ -10,6 +10,7 @@ dependencies = [
     "rich",
     "questionary",
     "google-genai",
+    "pyyaml",
 ]
 
 [project.scripts]

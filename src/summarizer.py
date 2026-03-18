@@ -6,8 +6,8 @@ import os
 import time
 from pathlib import Path
 
-_GEMINI_MODEL = "gemini-2.0-flash-lite"
-_MIN_REQUEST_INTERVAL = 4.0  # 15 RPM = 4s between requests
+from src.config import GEMINI_MODEL
+_MIN_REQUEST_INTERVAL = 4.0
 _last_request_time: float = 0.0
 
 
@@ -46,7 +46,7 @@ def _build_prompt(transcript: str, style: str) -> str:
 
 def _rate_limit() -> None:
     """Enforce minimum interval between API requests."""
-    global _last_request_time  # noqa: PLW0603
+    global _last_request_time
     now = time.monotonic()
     wait = _MIN_REQUEST_INTERVAL - (now - _last_request_time)
     if wait > 0:
@@ -84,7 +84,7 @@ def summarize_file(
 
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model=_GEMINI_MODEL,
+            model=GEMINI_MODEL,
             contents=prompt,
         )
 

@@ -35,3 +35,11 @@
 - Updated README.md: added setup script usage, AI summarization section, updated architecture diagram, output format, and features list.
 - Updated CLAUDE.md: added summarizer to architecture, updated execution flow, documented `.env` and key constraints.
 - PROGRESS.md maintained throughout all commit iterations.
+
+## [2026-03-18] YAML Config Refactor
+
+- Created `config.yaml` at project root with all user-configurable presets.
+- Refactored `src/config.py` into a YAML loader with hardcoded fallbacks and validation.
+- Added `get_config()` and `save_config()` for runtime config access and persistence.
+- Moved Gemini model name from hardcoded `summarizer.py` constant to config.
+- Added `pyyaml` dependency.
