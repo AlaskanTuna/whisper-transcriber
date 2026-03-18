@@ -290,6 +290,7 @@ def run_setup(summarize_available: bool = False) -> dict | None:
             state = "model"
 
         elif state == "model":
+            clear_screen()
             _step_header(2, 5, "Model")
             _show_context(language, "", "")
             answer = _select_model_size()
@@ -302,6 +303,7 @@ def run_setup(summarize_available: bool = False) -> dict | None:
             state = "task"
 
         elif state == "task":
+            clear_screen()
             if _is_summarize_only() or not model_size:
                 # First time or re-entering from summarize-only back
                 _step_header(3, 5, "Task") if model_size else _step_header(1, 4, "Task")
@@ -324,6 +326,7 @@ def run_setup(summarize_available: bool = False) -> dict | None:
                 state = "files"
 
         elif state == "transcript_files":
+            clear_screen()
             _header("Transcript Files")
             _show_context("", "", task, past_language_step=False)
             available = _scan_transcript_files()
@@ -346,6 +349,7 @@ def run_setup(summarize_available: bool = False) -> dict | None:
             state = "summary_style"
 
         elif state == "summary_style":
+            clear_screen()
             _header("Summary Style")
             _show_context(language, model_size, task)
             answer = _select_summary_style()
@@ -358,6 +362,7 @@ def run_setup(summarize_available: bool = False) -> dict | None:
             state = "confirm" if _is_summarize_only() else "files"
 
         elif state == "files":
+            clear_screen()
             _header("Files")
             _show_context(language, model_size, task)
             available = _scan_audio_files()
