@@ -49,5 +49,6 @@ Temporary Items
 node_modules/
 venv/
 .venv/
+.env
 audio/
 transcripts/
