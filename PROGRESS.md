@@ -61,3 +61,11 @@
 - New `_scan_transcript_files()` and `_select_transcript_files()` with `[has summary]` indicators.
 - Dedicated `_run_standalone_summarization()` and `_show_summary_results()` in `__main__.py`.
 - `_show_summary()` adapts display for summarize-only settings (no language/model rows).
+
+## [2026-03-18] Manage Files
+
+- Implemented `src/files.py` with file management sub-flow.
+- "View transcript": preview first 20 lines, option to open in $EDITOR.
+- "Delete file(s)": multi-select from both audio/ and transcripts/, confirmation required.
+- File listing table shows directory, count, and total size.
+- Accessible from home page "Manage Files" option.
