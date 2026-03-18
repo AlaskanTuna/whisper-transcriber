@@ -1,6 +1,6 @@
 [project]
 name = "whisper-transcriber"
-version = "0.1.0"
+version = "3.2.0"
 description = "Local audio transcription using OpenAI Whisper"
 requires-python = ">=3.10, <3.14"
 dependencies = [
