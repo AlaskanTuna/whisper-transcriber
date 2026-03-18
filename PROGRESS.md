@@ -29,3 +29,9 @@
 - Results table now shows separate Transcription and Summary columns when summarizing.
 - TUI state machine refactored from integer steps to named states for clarity.
 - Feature is fully optional: no changes to basic transcribe/translate flow without API key.
+
+## [2026-03-18] Documentation Update
+
+- Updated README.md: added setup script usage, AI summarization section, updated architecture diagram, output format, and features list.
+- Updated CLAUDE.md: added summarizer to architecture, updated execution flow, documented `.env` and key constraints.
+- PROGRESS.md maintained throughout all commit iterations.
