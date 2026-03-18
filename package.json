@@ -1,7 +1,6 @@
 {
   "scripts": {
-    "format": "prettier --write .",
-    "update": "npm run format && git add . && git commit -m '⠀' && git push"
+    "format": "prettier --write ."
   },
   "devDependencies": {
     "prettier": "^3.6.2",

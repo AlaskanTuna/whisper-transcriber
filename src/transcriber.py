@@ -1,4 +1,6 @@
-# src/transcriber.py
+"""
+Core transcription logic utilizing the OpenAI Whisper model.
+"""
 
 from pathlib import Path
 from typing import Any, Optional
@@ -14,7 +16,7 @@ def load_model(model_size: str) -> Any:
     @model_size: One of 'tiny', 'base', 'small', 'medium', 'large'.
     @return: Loaded Whisper model instance.
     """
-    import whisper
+    import whisper  # pylint: disable=import-outside-toplevel
     return whisper.load_model(model_size)
 
 
@@ -52,7 +54,7 @@ def transcribe_file(
                 f.write(f"{timestamp} {text}\n\n")
 
         return True, None
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         return False, str(e)
 
 
@@ -73,11 +75,11 @@ def _check_overwrites(files: list[Path], output_dir: Path) -> list[Path]:
     if not existing:
         return files
 
-    _SKIP_ALL = "SKIP_ALL"
+    skip_all = "SKIP_ALL"
     names = [f.name for f in existing]
     choices = [questionary.Choice(n, checked=True) for n in names]
     choices.append(questionary.Choice(
-        title=[("bold", "Skip all (keep existing)")], value=_SKIP_ALL,
+        title=[("bold", "Skip all (keep existing)")], value=skip_all,
     ))
     answer = questionary.checkbox(
         "These files have existing transcripts. Select which to overwrite:",
@@ -88,7 +90,7 @@ def _check_overwrites(files: list[Path], output_dir: Path) -> list[Path]:
     if answer is None:
         raise KeyboardInterrupt
 
-    if _SKIP_ALL in answer or not answer:
+    if skip_all in answer or not answer:
         return [f for f in files if f not in existing]
 
     overwrite_set = set(answer)
