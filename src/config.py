@@ -30,9 +30,10 @@ LANGUAGES: list[str] = [
     "Thai",
     "Indonesian",
 ]
+LANGUAGE_MAP: dict[str, str] = {name: name.lower() for name in LANGUAGES}
 DEFAULT_LANGUAGE: str = AUTO_DETECT
 
 TASKS: list[str] = ["transcribe", "translate"]
 DEFAULT_TASK: str = "transcribe"
 
-FILE_EXTENSIONS: list[str] = [".m4a", ".mp3", ".wav", ".flac", ".ogg"]
+FILE_EXTENSIONS: list[str] = [".m4a", ".mp3", ".wav", ".flac", ".ogg", ".aac", ".opus", ".webm"]

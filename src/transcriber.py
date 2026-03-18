@@ -1,29 +1,30 @@
 # src/transcriber.py
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
-import whisper
+import questionary
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, MofNCompleteColumn
 
 
-def load_model(model_size: str) -> whisper.Whisper:
+def load_model(model_size: str) -> Any:
     """
     Load and return a Whisper model.
 
     @model_size: One of 'tiny', 'base', 'small', 'medium', 'large'.
     @return: Loaded Whisper model instance.
     """
+    import whisper
     return whisper.load_model(model_size)
 
 
 def transcribe_file(
-    model: whisper.Whisper,
+    model: Any,
     input_path: Path,
     output_path: Path,
     language: Optional[str],
     task: str,
-) -> bool:
+) -> tuple[bool, str | None]:
     """
     Transcribe a single audio file and write timestamped output.
 
@@ -32,7 +33,7 @@ def transcribe_file(
     @output_path: Path to save transcription output.
     @language: Language of audio, or None for auto-detection.
     @task: Either 'transcribe' or 'translate'.
-    @return: True on success, False on failure.
+    @return: (success, error_message) tuple.
     """
     try:
         result = model.transcribe(
@@ -50,13 +51,52 @@ def transcribe_file(
                 text = segment["text"].strip()
                 f.write(f"{timestamp} {text}\n\n")
 
-        return True
-    except Exception:
-        return False
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
+def _check_overwrites(files: list[Path], output_dir: Path) -> list[Path]:
+    """
+    Check which files would overwrite existing transcripts and prompt the user.
+
+    @files: List of audio file Paths to check.
+    @output_dir: Directory where transcript files are written.
+    @return: Filtered list of files to actually transcribe.
+    """
+    existing = []
+    for f in files:
+        output_path = output_dir / f"{f.stem}.txt"
+        if output_path.exists():
+            existing.append(f)
+
+    if not existing:
+        return files
+
+    _SKIP_ALL = "SKIP_ALL"
+    names = [f.name for f in existing]
+    choices = [questionary.Choice(n, checked=True) for n in names]
+    choices.append(questionary.Choice(
+        title=[("bold", "Skip all (keep existing)")], value=_SKIP_ALL,
+    ))
+    answer = questionary.checkbox(
+        "These files have existing transcripts. Select which to overwrite:",
+        choices=choices,
+        instruction="(space to toggle, enter to confirm)",
+    ).ask()
+
+    if answer is None:
+        raise KeyboardInterrupt
+
+    if _SKIP_ALL in answer or not answer:
+        return [f for f in files if f not in existing]
+
+    overwrite_set = set(answer)
+    return [f for f in files if f not in existing or f.name in overwrite_set]
 
 
 def process_queue(
-    model: whisper.Whisper,
+    model: Any,
     files: list[Path],
     output_dir: Path,
     language: Optional[str],
@@ -70,9 +110,14 @@ def process_queue(
     @output_dir: Directory to write transcript files.
     @language: Language of audio, or None for auto-detection.
     @task: Either 'transcribe' or 'translate'.
-    @return: List of dicts with keys 'file' (str) and 'success' (bool).
+    @return: List of dicts with keys 'file', 'success', and 'error'.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    files = _check_overwrites(files, output_dir)
+    if not files:
+        return []
+
     results: list[dict] = []
 
     with Progress(
@@ -89,8 +134,8 @@ def process_queue(
         for file_path in files:
             progress.update(task_id, filename=file_path.name)
             output_path = output_dir / f"{file_path.stem}.txt"
-            success = transcribe_file(model, file_path, output_path, language, task)
-            results.append({"file": file_path.name, "success": success})
+            success, error = transcribe_file(model, file_path, output_path, language, task)
+            results.append({"file": file_path.name, "success": success, "error": error})
             progress.advance(task_id)
 
     return results

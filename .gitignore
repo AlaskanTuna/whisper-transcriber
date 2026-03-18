@@ -48,5 +48,6 @@ Temporary Items
 *pyc
 node_modules/
 venv/
+.venv/
 audio/
 transcripts/

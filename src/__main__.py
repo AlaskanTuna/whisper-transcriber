@@ -7,7 +7,6 @@ from rich.table import Table
 
 from src.config import DEFAULT_INPUT_DIR, DEFAULT_OUTPUT_DIR
 from src.ui import run_setup, clear_screen
-from src.transcriber import load_model, process_queue
 
 console = Console()
 
@@ -16,7 +15,7 @@ def _show_results(results: list[dict]) -> None:
     """
     Display an operation summary table after queue processing.
 
-    @results: List of dicts with keys 'file' (str) and 'success' (bool).
+    @results: List of dicts with keys 'file', 'success', and 'error'.
     """
     table = Table(title="Operation Summary")
     table.add_column("File", style="cyan")
@@ -30,7 +29,9 @@ def _show_results(results: list[dict]) -> None:
             table.add_row(r["file"], "[green]Success[/green]")
             succeeded += 1
         else:
-            table.add_row(r["file"], "[red]Failed[/red]")
+            error = r.get("error")
+            status = f"[red]Failed: {error}[/red]" if error else "[red]Failed[/red]"
+            table.add_row(r["file"], status)
             failed += 1
 
     console.print()
@@ -49,6 +50,8 @@ def _run_transcription(settings: dict) -> None:
 
     @settings: Config dict from run_setup().
     """
+    from src.transcriber import load_model, process_queue
+
     clear_screen()
 
     console.print()
