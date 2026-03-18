@@ -1,5 +1,6 @@
 # src/home.py
 
+from importlib.metadata import version, PackageNotFoundError
 from pathlib import Path
 
 import questionary
@@ -12,7 +13,10 @@ from src.ui import clear_screen, format_size
 
 console = Console()
 
-_VERSION = "0.2.0"
+try:
+    _VERSION = version("whisper-transcriber")
+except PackageNotFoundError:
+    _VERSION = "unknown"
 
 
 def _render_header() -> str:

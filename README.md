@@ -28,22 +28,22 @@ A CLI tool that uses OpenAI's Whisper to batch-transcribe audio files with an op
 
 ### Hardware
 
-| Component | Minimum | Recommended |
-|-----------|---------|-------------|
-| CPU | Any modern x86_64 | Multi-core for faster processing |
-| RAM | 4 GB | 8 GB+ (for medium/large models) |
-| GPU | Not required | NVIDIA CUDA-capable |
-| Disk | ~5 GB | ~10 GB (models cached locally) |
+| Component | Minimum           | Recommended                      |
+| --------- | ----------------- | -------------------------------- |
+| CPU       | Any modern x86_64 | Multi-core for faster processing |
+| RAM       | 4 GB              | 8 GB+ (for medium/large models)  |
+| GPU       | Not required      | NVIDIA CUDA-capable              |
+| Disk      | ~5 GB             | ~10 GB (models cached locally)   |
 
 #### VRAM by Model Size
 
-| Model | VRAM Required |
-|-------|--------------|
-| tiny | ~1 GB |
-| base | ~1 GB |
-| small | ~2 GB |
-| medium | ~5 GB |
-| large | ~10 GB |
+| Model  | VRAM Required |
+| ------ | ------------- |
+| tiny   | ~1 GB         |
+| base   | ~1 GB         |
+| small  | ~2 GB         |
+| medium | ~5 GB         |
+| large  | ~10 GB        |
 
 CPU-only transcription works for all model sizes but is significantly slower.
 
