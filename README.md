@@ -31,6 +31,7 @@ bash setup.sh
 ```
 
 The setup script will:
+
 1. Verify Python 3.10+ and ffmpeg
 2. Install `uv` if needed
 3. Check GPU/CUDA availability, VRAM, RAM, and disk space
@@ -73,18 +74,16 @@ Transcript summarization is powered by Google's Gemini 2.0 Flash Lite (free tier
 ### Usage
 
 When a Gemini API key is configured, the task selection step shows additional options:
+
 - **transcribe + summarize** -- transcribe then summarize
 - **translate + summarize** -- translate to English then summarize
 
 You can choose between two summary styles:
+
 - **Concise summary** -- a brief paragraph capturing the key points
 - **Bullet points** -- structured list of topics and takeaways
 
 Summaries are saved as `filename_summary.txt` alongside the transcript `filename.txt`.
-
-### Rate Limits
-
-The free tier allows 15 requests/minute and 1,000 requests/day. The tool enforces a 4-second minimum between API calls automatically.
 
 ---
 
@@ -99,8 +98,8 @@ src/
 ├── transcriber.py   # Whisper transcription logic
 └── ui.py            # TUI prompts with step navigation
 setup.sh             # One-time setup script
-audio/               # Input audio files (gitignored)
-transcripts/         # Output transcripts (gitignored)
+audio/               # Input audio files (generated at runtime)
+transcripts/         # Output transcripts (generated at runtime)
 ```
 
 ---
@@ -125,6 +124,7 @@ graph TD
 **Data flow:** `main()` loads `.env`, checks Gemini availability, then loops: TUI setup -> transcription -> optional summarization -> results. The UI module collects user preferences into a config dict without importing heavy modules. When the user confirms, `__main__` lazy-imports the transcriber (triggering `whisper`/`torch`), runs the queue, optionally summarizes via Gemini, and displays results.
 
 **Key constraints:**
+
 - `ui.py` never imports `transcriber.py` or `summarizer.py` -- keeps TUI instant
 - `summarizer.py` lazy-imports `google.genai` inside `summarize_file()` only
 - Summarization is fully optional -- gated on `GEMINI_API_KEY` presence
