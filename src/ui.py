@@ -16,18 +16,13 @@ _EXIT = "EXIT"
 _BACK_LABEL = [("bold", "BACK")]
 _EXIT_LABEL = [("bold", "EXIT")]
 
-_STEP_NAMES = ["Language", "Model", "Task", "Files", "Confirm"]
-_TOTAL_STEPS = len(_STEP_NAMES)
-
 
 def clear_screen() -> None:
     print("\033[2J\033[H", end="")
 
 
-def _step_header(step: int) -> None:
-    console.print(
-        f"\n[dim]Step {step + 1}/{_TOTAL_STEPS} \u2014 {_STEP_NAMES[step]}[/dim]"
-    )
+def _step_header(step_num: int, total: int, name: str) -> None:
+    console.print(f"\n[dim]Step {step_num}/{total} \u2014 {name}[/dim]")
 
 
 def _show_context(
@@ -42,6 +37,14 @@ def _show_context(
         parts.append(f"Task: {task}")
     if parts:
         console.print(f"[dim]{' | '.join(parts)}[/dim]")
+
+
+def _format_size(size_bytes: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if size_bytes < 1024:
+            return f"{size_bytes:.1f} {unit}" if unit != "B" else f"{size_bytes} B"
+        size_bytes /= 1024
+    return f"{size_bytes:.1f} TB"
 
 
 def _scan_audio_files() -> list[Path]:
@@ -86,8 +89,9 @@ def _select_model_size() -> str:
     return answer
 
 
-def _select_task() -> str:
-    choices = config.TASKS + [
+def _select_task(summarize_available: bool) -> str:
+    task_list = config.TASKS + config.SUMMARY_TASKS if summarize_available else config.TASKS
+    choices = task_list + [
         questionary.Choice(title=_BACK_LABEL, value=_BACK),
         questionary.Choice(title=_EXIT_LABEL, value=_EXIT),
     ]
@@ -104,12 +108,22 @@ def _select_task() -> str:
     return answer
 
 
-def _format_size(size_bytes: int) -> str:
-    for unit in ("B", "KB", "MB", "GB"):
-        if size_bytes < 1024:
-            return f"{size_bytes:.1f} {unit}" if unit != "B" else f"{size_bytes} B"
-        size_bytes /= 1024
-    return f"{size_bytes:.1f} TB"
+def _select_summary_style() -> str:
+    choices = config.SUMMARY_STYLES + [
+        questionary.Choice(title=_BACK_LABEL, value=_BACK),
+        questionary.Choice(title=_EXIT_LABEL, value=_EXIT),
+    ]
+    answer = questionary.select(
+        "Select summary style:",
+        choices=choices,
+        default=config.DEFAULT_SUMMARY_STYLE,
+        instruction="",
+    ).ask()
+
+    if answer is None:
+        raise KeyboardInterrupt
+
+    return answer
 
 
 def _select_files(available: list[Path]) -> list[Path] | str:
@@ -154,6 +168,8 @@ def _show_summary(settings: dict) -> bool:
     table.add_row("Language", lang_display)
     table.add_row("Model Size", settings["model_size"])
     table.add_row("Task", settings["task"])
+    if settings.get("summary_style"):
+        table.add_row("Summary Style", settings["summary_style"])
     table.add_row("Files", str(len(settings["files"])))
     table.add_row("Input Directory", str(config.DEFAULT_INPUT_DIR))
     table.add_row("Output Directory", str(config.DEFAULT_OUTPUT_DIR))
@@ -170,50 +186,82 @@ def _show_summary(settings: dict) -> bool:
     return confirm
 
 
-def run_setup() -> dict | None:
-    step = 0
+def _build_steps(has_summary_style: bool) -> list[str]:
+    """Build dynamic step name list based on active features."""
+    steps = ["Language", "Model", "Task"]
+    if has_summary_style:
+        steps.append("Summary Style")
+    steps.extend(["Files", "Confirm"])
+    return steps
+
+
+def run_setup(summarize_available: bool = False) -> dict | None:
+    # Steps are: Language(0), Model(1), Task(2), [SummaryStyle(3)], Files, Confirm
+    # We use named states instead of fragile indices for the conditional step.
+    state = "language"
     language: Optional[str] = None
     model_size: str = ""
     task: str = ""
+    summary_style: Optional[str] = None
     files: list[Path] = []
 
+    def _needs_summary_style() -> bool:
+        return "summarize" in task
+
+    def _header(name: str) -> None:
+        steps = _build_steps(_needs_summary_style())
+        idx = steps.index(name) + 1
+        _step_header(idx, len(steps), name)
+
     while True:
-        if step == 0:
+        if state == "language":
             clear_screen()
             console.print("\n[bold cyan]=== Whisper Transcriber ===[/bold cyan]")
-            _step_header(0)
+            _header("Language")
             answer = _select_language()
             if answer == _EXIT:
                 return None
             language = None if answer == config.AUTO_DETECT else config.LANGUAGE_MAP[answer]
-            step = 1
+            state = "model"
 
-        elif step == 1:
-            _step_header(1)
+        elif state == "model":
+            _header("Model")
             _show_context(language, "", "")
             answer = _select_model_size()
             if answer == _BACK:
-                step = 0
+                state = "language"
                 continue
             if answer == _EXIT:
                 return None
             model_size = answer
-            step = 2
+            state = "task"
 
-        elif step == 2:
-            _step_header(2)
+        elif state == "task":
+            _header("Task")
             _show_context(language, model_size, "")
-            answer = _select_task()
+            answer = _select_task(summarize_available)
             if answer == _BACK:
-                step = 1
+                state = "model"
                 continue
             if answer == _EXIT:
                 return None
             task = answer
-            step = 3
+            state = "summary_style" if _needs_summary_style() else "files"
 
-        elif step == 3:
-            _step_header(3)
+        elif state == "summary_style":
+            _header("Summary Style")
+            _show_context(language, model_size, task)
+            answer = _select_summary_style()
+            if answer == _BACK:
+                state = "task"
+                continue
+            if answer == _EXIT:
+                return None
+            summary_style = config.SUMMARY_STYLE_MAP[answer]
+            state = "files"
+
+        elif state == "files":
+            _header("Files")
             _show_context(language, model_size, task)
             available = _scan_audio_files()
             if not available:
@@ -226,31 +274,32 @@ def run_setup() -> dict | None:
                     + ", ".join(config.FILE_EXTENSIONS)
                 )
                 input("\nPress Enter to go back...")
-                step = 2
+                state = "summary_style" if _needs_summary_style() else "task"
                 continue
 
             answer = _select_files(available)
             if answer == _BACK:
-                step = 2
+                state = "summary_style" if _needs_summary_style() else "task"
                 continue
             if answer == _EXIT:
                 return None
             files = answer
-            step = 4
+            state = "confirm"
 
-        elif step == 4:
+        elif state == "confirm":
             clear_screen()
-            _step_header(4)
+            _header("Confirm")
             _show_context(language, model_size, task)
             settings = {
                 "language": language,
                 "model_size": model_size,
                 "task": task,
+                "summary_style": summary_style,
                 "files": files,
             }
 
             if not _show_summary(settings):
-                step = 3
+                state = "files"
                 continue
 
             return settings

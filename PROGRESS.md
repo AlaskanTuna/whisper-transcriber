@@ -17,3 +17,15 @@
 - Idempotent: safe to rerun, skips completed steps.
 - Launches transcriber at the end.
 - Added `.env` to `.gitignore`.
+
+## [2026-03-18] Gemini AI Summarizer
+
+- Added `google-genai` dependency for Gemini API integration.
+- New module `src/summarizer.py` with `summarize_file()`, rate limiting (4s between requests), and `.env` loading.
+- Task selection now includes "transcribe + summarize" and "translate + summarize" (shown when `GEMINI_API_KEY` is set).
+- New TUI step for summary style: "Concise summary" or "Bullet points" (conditional on summarize task).
+- Summaries saved as `filename_summary.txt` alongside transcripts.
+- Graceful error handling: API failures do not crash the queue.
+- Results table now shows separate Transcription and Summary columns when summarizing.
+- TUI state machine refactored from integer steps to named states for clarity.
+- Feature is fully optional: no changes to basic transcribe/translate flow without API key.
