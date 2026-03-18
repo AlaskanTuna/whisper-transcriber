@@ -104,8 +104,23 @@ def _select_task() -> str:
     return answer
 
 
+def _format_size(size_bytes: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if size_bytes < 1024:
+            return f"{size_bytes:.1f} {unit}" if unit != "B" else f"{size_bytes} B"
+        size_bytes /= 1024
+    return f"{size_bytes:.1f} TB"
+
+
 def _select_files(available: list[Path]) -> list[Path] | str:
-    choices = [questionary.Choice(f.name, value=str(f)) for f in available]
+    choices = []
+    for f in available:
+        size = _format_size(f.stat().st_size)
+        has_transcript = (config.DEFAULT_OUTPUT_DIR / f"{f.stem}.txt").exists()
+        label = f"{f.name} ({size})"
+        if has_transcript:
+            label += " [has transcript]"
+        choices.append(questionary.Choice(label, value=str(f)))
     choices.append(questionary.Choice(title=_BACK_LABEL, value=_BACK))
     choices.append(questionary.Choice(title=_EXIT_LABEL, value=_EXIT))
 

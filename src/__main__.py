@@ -50,7 +50,8 @@ def _run_transcription(settings: dict) -> None:
 
     @settings: Config dict from run_setup().
     """
-    from src.transcriber import load_model, process_queue
+    import time
+    from src.transcriber import load_model, process_queue, get_device
 
     clear_screen()
 
@@ -61,7 +62,10 @@ def _run_transcription(settings: dict) -> None:
     ):
         model = load_model(settings["model_size"])
 
-    console.print(f"[green]Model '{settings['model_size']}' loaded.[/green]\n")
+    device = get_device()
+    console.print(f"[green]Model '{settings['model_size']}' loaded on {device}.[/green]\n")
+
+    start_time = time.monotonic()
 
     results = process_queue(
         model=model,
@@ -70,6 +74,13 @@ def _run_transcription(settings: dict) -> None:
         language=settings["language"],
         task=settings["task"],
     )
+
+    elapsed = time.monotonic() - start_time
+    minutes, seconds = divmod(int(elapsed), 60)
+    if minutes:
+        console.print(f"[dim]Completed in {minutes}m {seconds}s[/dim]")
+    else:
+        console.print(f"[dim]Completed in {seconds}s[/dim]")
 
     _show_results(results)
 

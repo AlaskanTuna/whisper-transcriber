@@ -6,7 +6,10 @@ from pathlib import Path
 from typing import Any, Optional
 
 import questionary
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, MofNCompleteColumn
+from rich.progress import (
+    Progress, SpinnerColumn, TextColumn, BarColumn,
+    MofNCompleteColumn, TimeRemainingColumn,
+)
 
 
 def load_model(model_size: str) -> Any:
@@ -18,6 +21,15 @@ def load_model(model_size: str) -> Any:
     """
     import whisper  # pylint: disable=import-outside-toplevel
     return whisper.load_model(model_size)
+
+
+def get_device() -> str:
+    """Return a human-readable string for the compute device."""
+    import torch  # pylint: disable=import-outside-toplevel
+    if torch.cuda.is_available():
+        name = torch.cuda.get_device_name(0)
+        return f"GPU ({name})"
+    return "CPU"
 
 
 def transcribe_file(
@@ -47,9 +59,11 @@ def transcribe_file(
 
         with open(output_path, "w", encoding="utf-8") as f:
             for segment in result["segments"]:
-                total = int(segment["start"])
+                start = segment["start"]
+                total = int(start)
+                ms = int((start - total) * 1000)
                 h, m, s = total // 3600, (total % 3600) // 60, total % 60
-                timestamp = f"[{h:02d}:{m:02d}:{s:02d}]"
+                timestamp = f"[{h:02d}:{m:02d}:{s:02d}.{ms:03d}]"
                 text = segment["text"].strip()
                 f.write(f"{timestamp} {text}\n\n")
 
@@ -127,6 +141,7 @@ def process_queue(
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
         MofNCompleteColumn(),
+        TimeRemainingColumn(),
         TextColumn("{task.fields[filename]}"),
     ) as progress:
         task_id = progress.add_task(
