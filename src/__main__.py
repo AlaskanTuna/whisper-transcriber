@@ -1,232 +1,170 @@
 # src/__main__.py
 
+"""
+Entry point.
+
+With arguments, this is a headless CLI. Without them, it opens the TUI. Both
+paths run the same pipeline.
+"""
+
+import sys
 import time
 
 from rich.console import Console
-from rich.spinner import Spinner
 from rich.live import Live
+from rich.spinner import Spinner
 from rich.table import Table
 
 from src import config
-from src.config import DEFAULT_INPUT_DIR, DEFAULT_OUTPUT_DIR
-from src.ui import run_setup, clear_screen
 from src.home import show_home
-from src.summarizer import load_env, is_available as summarize_available
+from src.llm import is_available as llm_available
+from src.llm import load_env
+from src.pipeline import JobOptions, JobResult, run_jobs
+from src.ui import clear_screen, run_setup, select_transcripts_to_summarize
 
 console = Console()
 
 
-def _show_results(results: list[dict]) -> None:
-    """
-    Display an operation summary table after queue processing.
-
-    @results: List of dicts with keys 'file', 'success', and 'error'.
-    """
-    has_summaries = any("summary_success" in r for r in results)
-
-    table = Table(title="Operation Summary")
+def _show_results(results: list[JobResult]) -> None:
+    """Print a per-file summary with the full path of everything written."""
+    table = Table(title="Results")
     table.add_column("File", style="cyan")
-    table.add_column("Transcription", style="green")
-    if has_summaries:
-        table.add_column("Summary", style="green")
-
-    succeeded = 0
-    failed = 0
+    table.add_column("Status", style="green")
+    table.add_column("Written", style="green", justify="right")
 
     for r in results:
-        t_status = "[green]Success[/green]" if r["success"] else (
-            f"[red]Failed: {r['error']}[/red]" if r.get("error") else "[red]Failed[/red]"
-        )
-
-        if has_summaries:
-            if "summary_success" not in r:
-                s_status = "[dim]-[/dim]"
-            elif r["summary_success"]:
-                s_status = "[green]Done[/green]"
-            else:
-                s_status = f"[red]Failed: {r.get('summary_error', '')}[/red]"
-            table.add_row(r["file"], t_status, s_status)
+        if r.success:
+            table.add_row(r.source.name, "[green]Done[/green]", str(len(r.outputs)))
         else:
-            table.add_row(r["file"], t_status)
-
-        if r["success"]:
-            succeeded += 1
-        else:
-            failed += 1
+            table.add_row(r.source.name, f"[red]Failed: {r.error}[/red]", "0")
 
     console.print()
     console.print(table)
-    console.print()
+
+    for r in results:
+        if not r.outputs and not r.skipped and not r.warnings:
+            continue
+        console.print(f"\n[bold]{r.source.name}[/bold]")
+        for path in r.outputs:
+            console.print(f"  [cyan]{path}[/cyan]", soft_wrap=True)
+        for path in r.skipped:
+            console.print(
+                f"  [yellow]skipped, already exists:[/yellow] {path}", soft_wrap=True
+            )
+        for warning in r.warnings:
+            console.print(f"  [yellow]warning:[/yellow] {warning}")
+
+    succeeded = sum(1 for r in results if r.success)
     console.print(
-        f"[bold]{succeeded} succeeded, {failed} failed "
+        f"\n[bold]{succeeded} succeeded, {len(results) - succeeded} failed "
         f"out of {len(results)}[/bold]"
     )
-    console.print(f"Output directory: {DEFAULT_OUTPUT_DIR}")
 
 
 def _run_transcription(settings: dict) -> None:
-    """
-    Load model and process the selected file queue.
-
-    @settings: Config dict from run_setup().
-    """
-    from src.transcriber import load_model, process_queue, get_device
-
+    """Run the pipeline for a TUI-configured job."""
     clear_screen()
 
-    console.print()
-    with Live(
-        Spinner("dots", text=f"Loading model '{settings['model_size']}'..."),
-        console=console,
-    ):
-        model = load_model(settings["model_size"])
-
-    device = get_device()
-    console.print(f"[green]Model '{settings['model_size']}' loaded on {device}.[/green]\n")
-
-    whisper_task = config.get_whisper_task(settings["task"])
-
-    start_time = time.monotonic()
-
-    results = process_queue(
-        model=model,
-        files=settings["files"],
-        output_dir=DEFAULT_OUTPUT_DIR,
+    opts = JobOptions(
+        model_size=settings["model_size"],
         language=settings["language"],
-        task=whisper_task,
+        task=settings["task"],
+        formats=settings["formats"],
+        output=settings["output"],
+        polish_profile=settings["polish_profile"],
+        context=settings["context"],
+        summarize=settings["summarize"],
+        summary_style=settings["summary_style"],
+        overwrite=settings["overwrite"],
     )
 
-    elapsed = time.monotonic() - start_time
-    minutes, seconds = divmod(int(elapsed), 60)
-    if minutes:
-        console.print(f"[dim]Completed in {minutes}m {seconds}s[/dim]")
-    else:
-        console.print(f"[dim]Completed in {seconds}s[/dim]")
+    start = time.monotonic()
+    spinner = Spinner("dots", text="Starting…")
+    live = Live(spinner, console=console, refresh_per_second=10)
 
-    # Summarize if requested
-    if "summarize" in settings["task"] and settings["task"] != "summarize":
-        _run_summarization(results, settings["summary_style"])
+    def on_progress(stage: str, message: str) -> None:
+        # Whisper's own bar carries an ETA; let it have the terminal.
+        if stage == "transcribe":
+            live.stop()
+            console.print(f"[cyan]{message}[/cyan]")
+        else:
+            live.start()
+            spinner.update(text=message)
+
+    def on_model_load(size: str) -> None:
+        live.start()
+        spinner.update(text=f"Loading model '{size}'…")
+
+    try:
+        results = run_jobs(settings["sources"], opts, on_progress, on_model_load)
+    finally:
+        live.stop()
+
+    minutes, seconds = divmod(int(time.monotonic() - start), 60)
+    elapsed = f"{minutes}m {seconds}s" if minutes else f"{seconds}s"
+    console.print(f"[dim]Completed in {elapsed}[/dim]")
 
     _show_results(results)
 
 
-def _run_summarization(results: list[dict], style: str) -> None:
-    """Run Gemini summarization on successful transcripts."""
-    from src.summarizer import summarize_file
-    from pathlib import Path
-    from rich.progress import Progress, SpinnerColumn, TextColumn, MofNCompleteColumn
-
-    to_summarize = [r for r in results if r["success"]]
-    if not to_summarize:
-        return
-
-    console.print()
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        MofNCompleteColumn(),
-        TextColumn("{task.fields[filename]}"),
-    ) as progress:
-        task_id = progress.add_task(
-            "Summarizing", total=len(to_summarize), filename=""
-        )
-
-        for r in to_summarize:
-            stem = Path(r["file"]).stem
-            transcript_path = DEFAULT_OUTPUT_DIR / f"{stem}.txt"
-            summary_path = DEFAULT_OUTPUT_DIR / f"{stem}_summary.txt"
-            progress.update(task_id, filename=r["file"])
-            success, error = summarize_file(transcript_path, summary_path, style)
-            r["summary_success"] = success
-            r["summary_error"] = error
-            progress.advance(task_id)
-
-
 def _run_standalone_summarization(settings: dict) -> None:
     """Summarize existing transcript files without running Whisper."""
-    from src.summarizer import summarize_file
-    from rich.progress import Progress, SpinnerColumn, TextColumn, MofNCompleteColumn
+    from src.summarizer import summarize_file  # pylint: disable=import-outside-toplevel
 
     clear_screen()
     console.print()
 
-    transcript_files = settings["transcript_files"]
-    style = settings["summary_style"]
-    results: list[dict] = []
-
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        MofNCompleteColumn(),
-        TextColumn("{task.fields[filename]}"),
-    ) as progress:
-        task_id = progress.add_task(
-            "Summarizing", total=len(transcript_files), filename=""
-        )
-
-        for tpath in transcript_files:
-            progress.update(task_id, filename=tpath.name)
-            summary_path = tpath.parent / f"{tpath.stem}_summary.txt"
-            success, error = summarize_file(tpath, summary_path, style)
-            results.append({"file": tpath.name, "success": success, "error": error})
-            progress.advance(task_id)
-
-    _show_summary_results(results)
-
-
-def _show_summary_results(results: list[dict]) -> None:
-    """Display results table for standalone summarization."""
     table = Table(title="Summary Results")
     table.add_column("File", style="cyan")
     table.add_column("Status", style="green")
 
     succeeded = 0
-    failed = 0
-
-    for r in results:
-        if r["success"]:
-            table.add_row(r["file"], "[green]Done[/green]")
+    for path in settings["transcript_files"]:
+        summary_path = path.parent / f"{path.stem}_summary.txt"
+        with Live(Spinner("dots", text=f"Summarizing {path.name}…"), console=console):
+            success, error = summarize_file(path, summary_path, settings["summary_style"])
+        if success:
+            table.add_row(path.name, f"[green]{summary_path}[/green]")
             succeeded += 1
         else:
-            status = f"[red]Failed: {r['error']}[/red]" if r.get("error") else "[red]Failed[/red]"
-            table.add_row(r["file"], status)
-            failed += 1
+            table.add_row(path.name, f"[red]Failed: {error}[/red]")
 
     console.print()
     console.print(table)
-    console.print()
     console.print(
-        f"[bold]{succeeded} succeeded, {failed} failed "
-        f"out of {len(results)}[/bold]"
+        f"\n[bold]{succeeded} succeeded, "
+        f"{len(settings['transcript_files']) - succeeded} failed[/bold]"
     )
-    console.print(f"Output directory: {DEFAULT_OUTPUT_DIR}")
 
 
-def main() -> None:
-    """
-    Main loop -- home page dispatches to Start, Manage Files, or Settings.
-    """
-    DEFAULT_INPUT_DIR.mkdir(parents=True, exist_ok=True)
-    DEFAULT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+def run_tui() -> None:
+    """Home page loop."""
+    config.DEFAULT_INPUT_DIR.mkdir(parents=True, exist_ok=True)
+    config.DEFAULT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     load_env()
-    has_summarize = summarize_available()
+    has_llm = llm_available()
 
     while True:
         try:
-            choice = show_home()
+            choice = show_home(llm_available=has_llm)
 
             if choice in (None, "Exit"):
                 break
 
-            elif choice == "Start":
-                settings = run_setup(summarize_available=has_summarize)
+            if choice == "Transcribe":
+                settings = run_setup(llm_available=has_llm)
                 if settings is None:
                     continue
-                if settings["task"] == config.STANDALONE_SUMMARY_TASK:
-                    _run_standalone_summarization(settings)
-                else:
-                    _run_transcription(settings)
+                _run_transcription(settings)
+                console.print()
+                input("Press Enter to return to menu...")
+
+            elif choice == "Summarize":
+                settings = select_transcripts_to_summarize()
+                if settings is None:
+                    continue
+                _run_standalone_summarization(settings)
                 console.print()
                 input("Press Enter to return to menu...")
 
@@ -243,10 +181,18 @@ def main() -> None:
             break
         except SystemExit:
             raise
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             console.print(f"\n[bold red]Error:[/bold red] {e}")
             console.print("[cyan]Returning to menu...[/cyan]\n")
             input("Press Enter to continue...")
+
+
+def main() -> None:
+    """Dispatch to the headless CLI when arguments are given, otherwise the TUI."""
+    if len(sys.argv) > 1:
+        from src.cli import main as cli_main  # pylint: disable=import-outside-toplevel
+        sys.exit(cli_main())
+    run_tui()
 
 
 if __name__ == "__main__":

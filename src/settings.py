@@ -17,6 +17,11 @@ _EDITABLE_SETTINGS: list[dict] = [
     {"key": "model_size", "label": "Default Model Size", "choices": config.MODEL_SIZES},
     {"key": "language", "label": "Default Language", "choices": ["auto"] + [l.lower() for l in config.LANGUAGES]},
     {"key": "task", "label": "Default Task", "choices": config.TASKS},
+    {"key": "output_format", "label": "Default Output Format", "choices": config.OUTPUT_FORMATS},
+    {"key": "polish", "label": "Structure Documents by Default", "choices": [True, False]},
+    {"key": "polish_profile", "label": "Document Profile", "choices": config.POLISH_PROFILES},
+    {"key": "keep_extracted_audio", "label": "Keep Audio Extracted from Video", "choices": [True, False]},
+    {"key": "audio_bitrate", "label": "Extracted Audio Bitrate", "choices": None},  # free text
     {"key": "summary_style", "label": "Summary Style", "choices": list(config.SUMMARY_STYLE_MAP.values())},
     {"key": "gemini_model", "label": "Gemini Model", "choices": None},  # free text
 ]
@@ -33,13 +38,15 @@ def _edit_setting(setting: dict, current_value: str) -> str | None:
     choices = setting["choices"]
 
     if choices is not None:
-        all_choices = list(choices) + [
+        all_choices = [
+            questionary.Choice(title=str(c), value=c) for c in choices
+        ] + [
             questionary.Choice(title=_BACK_LABEL, value=_BACK),
         ]
         answer = questionary.select(
             f"Select new value for '{setting['label']}':",
             choices=all_choices,
-            default=current_value if current_value in choices else None,
+            default=next((c for c in choices if str(c) == current_value), None),
             instruction="",
         ).ask()
 
@@ -116,7 +123,7 @@ def run_settings() -> None:
         current = cfg.get(setting["key"], "")
         new_value = _edit_setting(setting, str(current))
 
-        if new_value is not None and new_value != str(current):
+        if new_value is not None and str(new_value) != str(current):
             config.save_config({setting["key"]: new_value})
             console.print(f"\n[green]Updated '{setting['label']}' to '{new_value}'.[/green]")
             input("\nPress Enter to continue...")
