@@ -2,7 +2,6 @@
 
 import questionary
 from rich.console import Console
-from rich.table import Table
 
 from src import config
 from src.ui import clear_screen
@@ -29,7 +28,8 @@ _EDITABLE_SETTINGS: list[dict] = [
 # Read-only list settings
 _LIST_SETTINGS: list[dict] = [
     {"key": "languages", "label": "Supported Languages"},
-    {"key": "file_extensions", "label": "File Extensions"},
+    {"key": "file_extensions", "label": "Audio Extensions"},
+    {"key": "video_extensions", "label": "Video Extensions"},
 ]
 
 
