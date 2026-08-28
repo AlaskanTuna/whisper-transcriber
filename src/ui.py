@@ -1,5 +1,13 @@
 # src/ui.py
 
+"""
+Interactive setup.
+
+Two questions get you running -- where the recording is, and which file -- then
+a summary screen you either accept or drill into. Settings default to config.yaml
+so a repeat run is two keystrokes.
+"""
+
 from pathlib import Path
 from typing import Optional
 
@@ -7,7 +15,7 @@ import questionary
 from rich.console import Console
 from rich.table import Table
 
-from src import config
+from src import config, paths
 
 console = Console()
 
@@ -16,27 +24,23 @@ _EXIT = "EXIT"
 _BACK_LABEL = [("bold", "BACK")]
 _EXIT_LABEL = [("bold", "EXIT")]
 
+_FORMAT_HELP = {
+    "txt": "timestamped transcript",
+    "md": "structured document, written by Gemini",
+    "srt": "subtitles",
+    "vtt": "subtitles, web",
+    "json": "segments with timings",
+}
+
+_PROFILE_HELP = {
+    "meeting": "speakers, decisions, figures, open items",
+    "talk": "topic sections, claims, takeaways",
+    "general": "topic sections, neutral",
+}
+
 
 def clear_screen() -> None:
     print("\033[2J\033[H", end="")
-
-
-def _step_header(step_num: int, total: int, name: str) -> None:
-    console.print(f"\n[dim]Step {step_num}/{total} \u2014 {name}[/dim]")
-
-
-def _show_context(
-    language: Optional[str], model_size: str, task: str, past_language_step: bool = True
-) -> None:
-    parts = []
-    if past_language_step and (language is not None or model_size):
-        parts.append(f"Language: {language or 'Auto'}")
-    if model_size:
-        parts.append(f"Model: {model_size}")
-    if task:
-        parts.append(f"Task: {task}")
-    if parts:
-        console.print(f"[dim]{' | '.join(parts)}[/dim]")
 
 
 def format_size(size_bytes: int) -> str:
@@ -47,14 +51,23 @@ def format_size(size_bytes: int) -> str:
     return f"{size_bytes:.1f} TB"
 
 
-def _scan_audio_files() -> list[Path]:
+def _ask(prompt) -> object:
+    """Run a questionary prompt, turning Ctrl-C into KeyboardInterrupt."""
+    answer = prompt.ask()
+    if answer is None:
+        raise KeyboardInterrupt
+    return answer
+
+
+def _scan_media_files() -> list[Path]:
+    """List media files sitting in the project's audio library."""
     files: list[Path] = []
-    for ext in config.FILE_EXTENSIONS:
+    for ext in config.MEDIA_EXTENSIONS:
         files.extend(config.DEFAULT_INPUT_DIR.glob(f"*{ext}"))
     return sorted(set(files), key=lambda p: p.name.lower())
 
 
-def _scan_transcript_files() -> list[Path]:
+def scan_transcript_files() -> list[Path]:
     """Scan transcripts/ for .txt files, excluding *_summary.txt."""
     all_txt = list(config.DEFAULT_OUTPUT_DIR.glob("*.txt"))
     return sorted(
@@ -63,349 +76,346 @@ def _scan_transcript_files() -> list[Path]:
     )
 
 
-def _select_language() -> Optional[str]:
-    choices = [config.AUTO_DETECT] + config.LANGUAGES + [
-        questionary.Choice(title=_EXIT_LABEL, value=_EXIT)
-    ]
-    answer = questionary.select(
-        "Select language:",
-        choices=choices,
-        default=config.DEFAULT_LANGUAGE,
-        instruction="",
-    ).ask()
+# ─── Source selection ────────────────────────────────────────────────────────
 
-    if answer is None:
-        raise KeyboardInterrupt
-
-    return answer
-
-
-def _select_model_size() -> str:
-    choices = config.MODEL_SIZES + [
-        questionary.Choice(title=_BACK_LABEL, value=_BACK),
-        questionary.Choice(title=_EXIT_LABEL, value=_EXIT),
-    ]
-    answer = questionary.select(
-        "Select model size:",
-        choices=choices,
-        default=config.DEFAULT_MODEL_SIZE,
-        instruction="",
-    ).ask()
-
-    if answer is None:
-        raise KeyboardInterrupt
-
-    return answer
-
-
-def _select_task(summarize_available: bool) -> str:
-    task_list = list(config.TASKS)
-    if summarize_available:
-        task_list += config.SUMMARY_TASKS
-        task_list.append(questionary.Separator())
-        task_list.append(
-            questionary.Choice(config.STANDALONE_SUMMARY_TASK, value=config.STANDALONE_SUMMARY_TASK)
+def _select_from_library() -> list[Path] | str:
+    """Pick one or more files from the project's audio library."""
+    available = _scan_media_files()
+    if not available:
+        console.print(
+            f"\n[yellow]No media files in {config.DEFAULT_INPUT_DIR}[/yellow]\n"
+            f"[dim]Supported: {', '.join(config.MEDIA_EXTENSIONS)}[/dim]"
         )
-    choices = task_list + [
-        questionary.Choice(title=_BACK_LABEL, value=_BACK),
-        questionary.Choice(title=_EXIT_LABEL, value=_EXIT),
-    ]
-    answer = questionary.select(
-        "Select task:",
-        choices=choices,
-        default=config.DEFAULT_TASK,
-        instruction="",
-    ).ask()
+        input("\nPress Enter to go back...")
+        return _BACK
 
-    if answer is None:
-        raise KeyboardInterrupt
-
-    return answer
-
-
-def _select_summary_style() -> str:
-    choices = config.SUMMARY_STYLES + [
-        questionary.Choice(title=_BACK_LABEL, value=_BACK),
-        questionary.Choice(title=_EXIT_LABEL, value=_EXIT),
-    ]
-    answer = questionary.select(
-        "Select summary style:",
-        choices=choices,
-        default=config.DEFAULT_SUMMARY_STYLE,
-        instruction="",
-    ).ask()
-
-    if answer is None:
-        raise KeyboardInterrupt
-
-    return answer
-
-
-def _select_files(available: list[Path]) -> list[Path] | str:
     choices = []
     for f in available:
-        size = format_size(f.stat().st_size)
-        has_transcript = (config.DEFAULT_OUTPUT_DIR / f"{f.stem}.txt").exists()
-        label = f"{f.name} ({size})"
-        if has_transcript:
+        label = f"{f.name} ({format_size(f.stat().st_size)})"
+        if (config.DEFAULT_OUTPUT_DIR / f"{f.stem}.txt").exists():
             label += " [has transcript]"
         choices.append(questionary.Choice(label, value=str(f)))
     choices.append(questionary.Choice(title=_BACK_LABEL, value=_BACK))
-    choices.append(questionary.Choice(title=_EXIT_LABEL, value=_EXIT))
 
-    answer = questionary.checkbox(
-        "Select audio files (space to toggle, enter to confirm):",
+    answer = _ask(questionary.checkbox(
+        "Select files (space to toggle, enter to confirm):",
         choices=choices,
         instruction="",
-    ).ask()
+    ))
+    if _BACK in answer or not answer:
+        return _BACK
+    return [Path(p) for p in answer if p != _BACK]
 
-    if answer is None:
-        raise KeyboardInterrupt
 
-    if _EXIT in answer:
+def _select_by_path() -> list[Path] | str:
+    """Type or tab-complete a path to any file or folder on disk."""
+    console.print(
+        "\n[dim]Any audio or video file, or a folder of them. Tab completes paths.[/dim]"
+    )
+    answer = _ask(questionary.path("File or folder:", only_directories=False))
+    raw = str(answer).strip()
+    if not raw:
+        return _BACK
+
+    candidate = Path(raw).expanduser()
+    if not candidate.exists():
+        console.print(f"\n[red]Not found:[/red] {candidate}")
+        input("\nPress Enter to try again...")
+        return _BACK
+
+    found = paths.collect_media([candidate])
+    if not found:
+        console.print(f"\n[red]No supported media found in:[/red] {candidate}")
+        console.print(f"[dim]Supported: {', '.join(config.MEDIA_EXTENSIONS)}[/dim]")
+        input("\nPress Enter to try again...")
+        return _BACK
+
+    if len(found) > 1:
+        console.print(f"\n[green]Found {len(found)} media files.[/green]")
+    return found
+
+
+def _select_sources() -> list[Path] | str:
+    """Ask where the recording lives, then collect the files."""
+    library_count = len(_scan_media_files())
+    choices = [
+        questionary.Choice(
+            "Enter a file or folder path…    [any location, tab-completes]",
+            value="path",
+        ),
+        questionary.Choice(
+            f"Pick from the audio library     [{library_count} file(s) in audio/]",
+            value="library",
+        ),
+        questionary.Separator(),
+        questionary.Choice(title=_EXIT_LABEL, value=_EXIT),
+    ]
+    answer = _ask(questionary.select(
+        "Where is the recording?", choices=choices, instruction="",
+    ))
+    if answer == _EXIT:
         return _EXIT
-
-    if _BACK in answer:
-        return _BACK
-
-    if not answer:
-        return _BACK
-
-    return [Path(p) for p in answer if p not in (_BACK, _EXIT)]
+    return _select_by_path() if answer == "path" else _select_from_library()
 
 
-def _select_transcript_files(available: list[Path]) -> list[Path] | str:
-    """Select transcript files for standalone summarization."""
+# ─── Settings editing ────────────────────────────────────────────────────────
+
+def _edit_language(current: Optional[str]) -> Optional[str]:
+    choices = [config.AUTO_DETECT] + config.LANGUAGES
+    default = config.AUTO_DETECT
+    if current:
+        default = next((l for l in config.LANGUAGES if l.lower() == current), config.AUTO_DETECT)
+    answer = _ask(questionary.select(
+        "Language:", choices=choices, default=default, instruction="",
+    ))
+    return None if answer == config.AUTO_DETECT else config.LANGUAGE_MAP[answer]
+
+
+def _edit_model(current: str) -> str:
+    return str(_ask(questionary.select(
+        "Model size:", choices=config.MODEL_SIZES, default=current, instruction="",
+    )))
+
+
+def _edit_task(current: str) -> str:
+    return str(_ask(questionary.select(
+        "Task:", choices=config.TASKS, default=current, instruction="",
+    )))
+
+
+def _edit_formats(current: list[str], llm_available: bool) -> list[str]:
     choices = []
-    for f in available:
-        size = format_size(f.stat().st_size)
-        has_summary = (f.parent / f"{f.stem}_summary.txt").exists()
-        label = f"{f.name} ({size})"
-        if has_summary:
-            label += " [has summary]"
-        choices.append(questionary.Choice(label, value=str(f)))
-    choices.append(questionary.Choice(title=_BACK_LABEL, value=_BACK))
-    choices.append(questionary.Choice(title=_EXIT_LABEL, value=_EXIT))
-
-    answer = questionary.checkbox(
-        "Select transcripts to summarize (space to toggle, enter to confirm):",
-        choices=choices,
-        instruction="",
-    ).ask()
-
-    if answer is None:
-        raise KeyboardInterrupt
-
-    if _EXIT in answer:
-        return _EXIT
-
-    if _BACK in answer:
-        return _BACK
-
-    if not answer:
-        return _BACK
-
-    return [Path(p) for p in answer if p not in (_BACK, _EXIT)]
+    for fmt in config.OUTPUT_FORMATS:
+        needs_key = fmt == config.POLISHED_FORMAT and not llm_available
+        label = f"{fmt:<5} {_FORMAT_HELP[fmt]}"
+        choices.append(questionary.Choice(
+            label,
+            value=fmt,
+            checked=fmt in current and not needs_key,
+            disabled="needs GEMINI_API_KEY" if needs_key else None,
+        ))
+    answer = _ask(questionary.checkbox(
+        "Output formats (space to toggle):", choices=choices, instruction="",
+    ))
+    picked = list(answer) or [config.DEFAULT_OUTPUT_FORMAT]
+    if config.POLISHED_FORMAT in picked and "txt" not in picked:
+        picked.insert(0, "txt")
+    return [f for f in config.OUTPUT_FORMATS if f in picked]
 
 
-def _show_summary(settings: dict) -> bool:
-    table = Table(title="Configuration Summary")
+def _edit_profile(current: str) -> str:
+    choices = [
+        questionary.Choice(f"{p:<9} {_PROFILE_HELP[p]}", value=p)
+        for p in config.POLISH_PROFILES
+    ]
+    return str(_ask(questionary.select(
+        "Document profile:", choices=choices, default=None, instruction="",
+    )) or current)
+
+
+def _edit_context(current: Optional[str]) -> Optional[str]:
+    console.print(
+        "\n[dim]Names, companies and spellings the recogniser will get wrong.\n"
+        "Example: \"Alex Toh of TDG Group; Anderson and Zijie of NexTalent\"[/dim]"
+    )
+    answer = str(_ask(questionary.text("Known names and context:", default=current or ""))).strip()
+    return answer or None
+
+
+def _edit_output(current: Optional[Path], sources: list[Path]) -> Optional[Path]:
+    beside = paths.plan_output(sources[0], None).directory if sources else Path.cwd()
+    choices = [
+        questionary.Choice(f"Beside the input file        [{beside}]", value="beside"),
+        questionary.Choice(
+            f"Project transcripts/ folder  [{config.DEFAULT_OUTPUT_DIR}]", value="project",
+        ),
+        questionary.Choice("Choose another folder…", value="custom"),
+    ]
+    answer = _ask(questionary.select(
+        "Where should the results go?", choices=choices, instruction="",
+    ))
+    if answer == "beside":
+        return None
+    if answer == "project":
+        return config.DEFAULT_OUTPUT_DIR
+    chosen = str(_ask(questionary.path("Folder:", only_directories=True))).strip()
+    return Path(chosen).expanduser() if chosen else current
+
+
+def _change_settings(settings: dict, llm_available: bool) -> None:
+    """Loop over the individual settings until the user goes back."""
+    while True:
+        clear_screen()
+        console.print("\n[bold cyan]Settings for this run[/bold cyan]\n")
+        formats = ", ".join(settings["formats"])
+        polished = config.POLISHED_FORMAT in settings["formats"]
+        rows = [
+            ("model", f"Model size: {settings['model_size']}"),
+            ("language", f"Language: {settings['language'] or 'Auto (detect)'}"),
+            ("task", f"Task: {settings['task']}"),
+            ("formats", f"Output formats: {formats}"),
+            ("output", f"Destination: {settings['output'] or 'beside the input file'}"),
+        ]
+        if polished:
+            rows.append(("profile", f"Document profile: {settings['polish_profile']}"))
+            rows.append(("context", f"Known names: {settings['context'] or '(none)'}"))
+        if llm_available:
+            rows.append(("summarize", f"Also write a summary: {'yes' if settings['summarize'] else 'no'}"))
+        rows.append(("overwrite", f"Overwrite existing files: {'yes' if settings['overwrite'] else 'no'}"))
+
+        choices = [questionary.Choice(label, value=key) for key, label in rows]
+        choices += [questionary.Separator(), questionary.Choice("Done", value=_BACK)]
+
+        answer = _ask(questionary.select("Change:", choices=choices, instruction=""))
+        if answer == _BACK:
+            return
+
+        if answer == "model":
+            settings["model_size"] = _edit_model(settings["model_size"])
+        elif answer == "language":
+            settings["language"] = _edit_language(settings["language"])
+        elif answer == "task":
+            settings["task"] = _edit_task(settings["task"])
+        elif answer == "formats":
+            settings["formats"] = _edit_formats(settings["formats"], llm_available)
+        elif answer == "output":
+            settings["output"] = _edit_output(settings["output"], settings["sources"])
+        elif answer == "profile":
+            settings["polish_profile"] = _edit_profile(settings["polish_profile"])
+        elif answer == "context":
+            settings["context"] = _edit_context(settings["context"])
+        elif answer == "summarize":
+            settings["summarize"] = not settings["summarize"]
+        elif answer == "overwrite":
+            settings["overwrite"] = not settings["overwrite"]
+
+
+# ─── Summary screen ──────────────────────────────────────────────────────────
+
+def _show_plan(settings: dict) -> None:
+    """Print what is about to happen, including every output path."""
+    sources = settings["sources"]
+
+    table = Table(title="Ready to transcribe", show_lines=False)
     table.add_column("Setting", style="cyan")
     table.add_column("Value", style="green")
-
-    is_summarize_only = settings["task"] == config.STANDALONE_SUMMARY_TASK
-
-    if not is_summarize_only:
-        lang_display = settings["language"] if settings["language"] else "Auto (detect)"
-        table.add_row("Language", lang_display)
-        table.add_row("Model Size", settings["model_size"])
-
+    table.add_row("Files", f"{len(sources)}: " + ", ".join(s.name for s in sources[:3])
+                  + (f" +{len(sources) - 3} more" if len(sources) > 3 else ""))
+    table.add_row("Model", settings["model_size"])
+    table.add_row("Language", settings["language"] or "Auto (detect)")
     table.add_row("Task", settings["task"])
-
-    if settings.get("summary_style"):
-        table.add_row("Summary Style", settings["summary_style"])
-
-    if is_summarize_only:
-        table.add_row("Transcript Files", str(len(settings.get("transcript_files", []))))
-    else:
-        table.add_row("Files", str(len(settings["files"])))
-
-    table.add_row("Output Directory", str(config.DEFAULT_OUTPUT_DIR))
+    table.add_row("Formats", ", ".join(settings["formats"]))
+    if config.POLISHED_FORMAT in settings["formats"]:
+        table.add_row("Document profile", settings["polish_profile"])
+        if settings["context"]:
+            table.add_row("Known names", settings["context"][:60])
+    if settings["summarize"]:
+        table.add_row("Summary", settings["summary_style"])
 
     console.print()
     console.print(table)
+
+    plan = paths.plan_output(sources[0], settings["output"])
+    console.print(f"\n[bold]Writing to[/bold] [cyan]{plan.directory}[/cyan]")
+    for fmt in settings["formats"]:
+        console.print(f"  {plan.path_for(fmt).name}")
+    if len(sources) > 1:
+        console.print(f"  [dim]... and the same for {len(sources) - 1} more file(s)[/dim]")
     console.print()
 
-    confirm = questionary.confirm("Proceed with these settings?", default=True).ask()
 
-    if confirm is None:
-        raise KeyboardInterrupt
+def run_setup(llm_available: bool = False) -> dict | None:
+    """
+    Collect everything needed for a run.
 
-    return confirm
+    @llm_available: Whether GEMINI_API_KEY is set, gating the Markdown and summary options.
+    @return: A settings dict, or None if the user backed out.
+    """
+    default_formats = [config.DEFAULT_OUTPUT_FORMAT]
+    if config.DEFAULT_POLISH and llm_available:
+        default_formats = ["txt", config.POLISHED_FORMAT]
 
-
-def _build_steps(task: str) -> list[str]:
-    """Build dynamic step name list based on the selected task."""
-    if task == config.STANDALONE_SUMMARY_TASK:
-        return ["Task", "Transcript Files", "Summary Style", "Confirm"]
-
-    steps = ["Language", "Model", "Task"]
-    if "summarize" in task:
-        steps.append("Summary Style")
-    steps.extend(["Files", "Confirm"])
-    return steps
-
-
-def run_setup(summarize_available: bool = False) -> dict | None:
-    state = "language"
-    language: Optional[str] = None
-    model_size: str = ""
-    task: str = ""
-    summary_style: Optional[str] = None
-    files: list[Path] = []
-    transcript_files: list[Path] = []
-
-    def _is_summarize_only() -> bool:
-        return task == config.STANDALONE_SUMMARY_TASK
-
-    def _needs_summary_style() -> bool:
-        return "summarize" in task
-
-    def _header(name: str) -> None:
-        steps = _build_steps(task)
-        idx = steps.index(name) + 1
-        _step_header(idx, len(steps), name)
+    settings: dict = {
+        "sources": [],
+        "model_size": config.DEFAULT_MODEL_SIZE,
+        "language": None if config.DEFAULT_LANGUAGE == config.AUTO_DETECT
+        else config.LANGUAGE_MAP.get(config.DEFAULT_LANGUAGE, config.DEFAULT_LANGUAGE),
+        "task": config.DEFAULT_TASK,
+        "formats": default_formats,
+        "output": None,
+        "polish_profile": config.DEFAULT_POLISH_PROFILE,
+        "context": None,
+        "summarize": False,
+        "summary_style": config.SUMMARY_STYLE_MAP[config.DEFAULT_SUMMARY_STYLE],
+        "overwrite": False,
+    }
 
     while True:
-        if state == "language":
-            clear_screen()
-            console.print("\n[bold cyan]=== Whisper Transcriber ===[/bold cyan]")
-            # For initial entry, show task step if we haven't picked a task yet
-            # Otherwise show language step
-            _step_header(1, 5, "Language")
-            answer = _select_language()
-            if answer == _EXIT:
-                return None
-            language = None if answer == config.AUTO_DETECT else config.LANGUAGE_MAP[answer]
-            state = "model"
+        clear_screen()
+        console.print("\n[bold cyan]=== Whisper Transcriber ===[/bold cyan]")
+        chosen = _select_sources()
+        if chosen == _EXIT:
+            return None
+        if chosen == _BACK:
+            continue
+        settings["sources"] = chosen
+        break
 
-        elif state == "model":
-            clear_screen()
-            _step_header(2, 5, "Model")
-            _show_context(language, "", "")
-            answer = _select_model_size()
-            if answer == _BACK:
-                state = "language"
-                continue
-            if answer == _EXIT:
-                return None
-            model_size = answer
-            state = "task"
+    while True:
+        clear_screen()
+        _show_plan(settings)
 
-        elif state == "task":
-            clear_screen()
-            if _is_summarize_only() or not model_size:
-                # First time or re-entering from summarize-only back
-                _step_header(3, 5, "Task") if model_size else _step_header(1, 4, "Task")
-            else:
-                _step_header(3, len(_build_steps(task or "transcribe")), "Task")
-            _show_context(language, model_size, "")
-            answer = _select_task(summarize_available)
-            if answer == _BACK:
-                state = "model"
-                continue
-            if answer == _EXIT:
-                return None
-            task = answer
+        answer = _ask(questionary.select(
+            "Proceed?",
+            choices=[
+                questionary.Choice("Start transcription", value="go"),
+                questionary.Choice("Change settings…", value="settings"),
+                questionary.Separator(),
+                questionary.Choice(title=_BACK_LABEL, value=_BACK),
+            ],
+            instruction="",
+        ))
 
-            if _is_summarize_only():
-                state = "transcript_files"
-            elif _needs_summary_style():
-                state = "summary_style"
-            else:
-                state = "files"
-
-        elif state == "transcript_files":
-            clear_screen()
-            _header("Transcript Files")
-            _show_context("", "", task, past_language_step=False)
-            available = _scan_transcript_files()
-            if not available:
-                console.print(
-                    f"\n[yellow]No transcript files found in "
-                    f"{config.DEFAULT_OUTPUT_DIR}[/yellow]"
-                )
-                input("\nPress Enter to go back...")
-                state = "task"
-                continue
-
-            answer = _select_transcript_files(available)
-            if answer == _BACK:
-                state = "task"
-                continue
-            if answer == _EXIT:
-                return None
-            transcript_files = answer
-            state = "summary_style"
-
-        elif state == "summary_style":
-            clear_screen()
-            _header("Summary Style")
-            _show_context(language, model_size, task)
-            answer = _select_summary_style()
-            if answer == _BACK:
-                state = "transcript_files" if _is_summarize_only() else "task"
-                continue
-            if answer == _EXIT:
-                return None
-            summary_style = config.SUMMARY_STYLE_MAP[answer]
-            state = "confirm" if _is_summarize_only() else "files"
-
-        elif state == "files":
-            clear_screen()
-            _header("Files")
-            _show_context(language, model_size, task)
-            available = _scan_audio_files()
-            if not available:
-                console.print(
-                    f"\n[yellow]No supported audio files found in "
-                    f"{config.DEFAULT_INPUT_DIR}[/yellow]"
-                )
-                console.print(
-                    "[cyan]Supported formats:[/cyan] "
-                    + ", ".join(config.FILE_EXTENSIONS)
-                )
-                input("\nPress Enter to go back...")
-                state = "summary_style" if _needs_summary_style() else "task"
-                continue
-
-            answer = _select_files(available)
-            if answer == _BACK:
-                state = "summary_style" if _needs_summary_style() else "task"
-                continue
-            if answer == _EXIT:
-                return None
-            files = answer
-            state = "confirm"
-
-        elif state == "confirm":
-            clear_screen()
-            _header("Confirm")
-            _show_context(language, model_size, task)
-            settings = {
-                "language": language,
-                "model_size": model_size,
-                "task": task,
-                "summary_style": summary_style,
-                "files": files,
-                "transcript_files": transcript_files,
-            }
-
-            if not _show_summary(settings):
-                if _is_summarize_only():
-                    state = "summary_style"
-                else:
-                    state = "files"
-                continue
-
+        if answer == "go":
             return settings
+        if answer == _BACK:
+            return None
+        _change_settings(settings, llm_available)
+
+
+# ─── Standalone summarization ────────────────────────────────────────────────
+
+def select_transcripts_to_summarize() -> dict | None:
+    """Pick existing transcripts and a style for the summarize-only flow."""
+    available = scan_transcript_files()
+    if not available:
+        console.print(f"\n[yellow]No transcripts in {config.DEFAULT_OUTPUT_DIR}[/yellow]")
+        input("\nPress Enter to go back...")
+        return None
+
+    choices = []
+    for f in available:
+        label = f"{f.name} ({format_size(f.stat().st_size)})"
+        if (f.parent / f"{f.stem}_summary.txt").exists():
+            label += " [has summary]"
+        choices.append(questionary.Choice(label, value=str(f)))
+    choices.append(questionary.Choice(title=_BACK_LABEL, value=_BACK))
+
+    answer = _ask(questionary.checkbox(
+        "Select transcripts (space to toggle, enter to confirm):",
+        choices=choices,
+        instruction="",
+    ))
+    if _BACK in answer or not answer:
+        return None
+
+    style = _ask(questionary.select(
+        "Summary style:",
+        choices=config.SUMMARY_STYLES,
+        default=config.DEFAULT_SUMMARY_STYLE,
+        instruction="",
+    ))
+    return {
+        "transcript_files": [Path(p) for p in answer if p != _BACK],
+        "summary_style": config.SUMMARY_STYLE_MAP[str(style)],
+    }

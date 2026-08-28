@@ -22,19 +22,35 @@ SUMMARY_STYLE_MAP: dict[str, str] = {
     "Bullet points": "bullet_points",
 }
 
+# Output renderings. 'md' is the LLM-polished document; the rest are mechanical.
+OUTPUT_FORMATS: list[str] = ["txt", "md", "srt", "vtt", "json"]
+POLISHED_FORMAT: str = "md"
+
+# Prompt shapes for the polish pass.
+POLISH_PROFILES: list[str] = ["meeting", "talk", "general"]
+POLISH_OFF: str = "off"
+
 # ─── Defaults (used when config.yaml is missing or has invalid values) ───────
 _DEFAULTS: dict = {
     "model_size": "small",
     "language": "auto",
     "task": "transcribe",
     "summary_style": "concise",
-    "gemini_model": "gemini-3.1-flash-lite-preview",
+    "gemini_model": "gemini-3.5-flash-lite",
+    "output_format": "txt",
+    "polish": False,
+    "polish_profile": "meeting",
+    "audio_bitrate": "192k",
+    "keep_extracted_audio": True,
     "languages": [
         "English", "Japanese", "Chinese", "Korean", "Spanish", "French",
         "German", "Portuguese", "Italian", "Dutch", "Russian", "Arabic",
         "Hindi", "Turkish", "Vietnamese", "Thai", "Indonesian",
     ],
     "file_extensions": [".m4a", ".mp3", ".wav", ".flac", ".ogg", ".aac", ".opus", ".webm"],
+    "video_extensions": [
+        ".mp4", ".mkv", ".mov", ".avi", ".m4v", ".flv", ".wmv", ".ts", ".mpg", ".mpeg",
+    ],
 }
 
 
@@ -69,8 +85,25 @@ _REVERSE_STYLE_MAP: dict[str, str] = {v: k for k, v in SUMMARY_STYLE_MAP.items()
 DEFAULT_SUMMARY_STYLE: str = _REVERSE_STYLE_MAP.get(_style, "Concise summary")
 
 FILE_EXTENSIONS: list[str] = _cfg.get("file_extensions", _DEFAULTS["file_extensions"])
+VIDEO_EXTENSIONS: list[str] = _cfg.get("video_extensions", _DEFAULTS["video_extensions"])
+MEDIA_EXTENSIONS: list[str] = FILE_EXTENSIONS + VIDEO_EXTENSIONS
 
 GEMINI_MODEL: str = _cfg.get("gemini_model", _DEFAULTS["gemini_model"])
+
+_fmt = _cfg.get("output_format", _DEFAULTS["output_format"])
+DEFAULT_OUTPUT_FORMAT: str = _fmt if _fmt in OUTPUT_FORMATS else _DEFAULTS["output_format"]
+
+DEFAULT_POLISH: bool = bool(_cfg.get("polish", _DEFAULTS["polish"]))
+
+_profile = _cfg.get("polish_profile", _DEFAULTS["polish_profile"])
+DEFAULT_POLISH_PROFILE: str = (
+    _profile if _profile in POLISH_PROFILES else _DEFAULTS["polish_profile"]
+)
+
+DEFAULT_AUDIO_BITRATE: str = str(_cfg.get("audio_bitrate", _DEFAULTS["audio_bitrate"]))
+KEEP_EXTRACTED_AUDIO: bool = bool(
+    _cfg.get("keep_extracted_audio", _DEFAULTS["keep_extracted_audio"])
+)
 
 
 # ─── Config access / persistence ─────────────────────────────────────────────

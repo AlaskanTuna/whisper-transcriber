@@ -1,6 +1,6 @@
 [project]
 name = "whisper-transcriber"
-version = "3.2.0"
+version = "4.0.0"
 description = "Local audio transcription using OpenAI Whisper"
 requires-python = ">=3.10, <3.14"
 dependencies = [
@@ -15,6 +15,13 @@ dependencies = [
 
 [project.scripts]
 transcriber = "src.__main__:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]

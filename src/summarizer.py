@@ -1,32 +1,15 @@
 """
 Gemini-based transcript summarization.
+
+The API key, client and rate limiting live in llm.py; this module owns the
+summary prompts and the read/write wrapper.
 """
 
-import os
-import time
 from pathlib import Path
 
-from src.config import GEMINI_MODEL
-_MIN_REQUEST_INTERVAL = 4.0
-_last_request_time: float = 0.0
+from src.llm import LLMError, generate, is_available, load_env  # noqa: F401  (re-exported)
 
-
-def load_env() -> None:
-    """Load .env file from project root if present."""
-    env_path = Path(__file__).resolve().parent.parent / ".env"
-    if not env_path.exists():
-        return
-    with open(env_path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, _, value = line.partition("=")
-                os.environ.setdefault(key.strip(), value.strip())
-
-
-def is_available() -> bool:
-    """Check if Gemini summarization is available (API key set)."""
-    return bool(os.environ.get("GEMINI_API_KEY"))
+__all__ = ["load_env", "is_available", "summarize_text", "summarize_file"]
 
 
 def _build_prompt(transcript: str, style: str) -> str:
@@ -44,14 +27,17 @@ def _build_prompt(transcript: str, style: str) -> str:
     return f"{instruction}\n\nTranscript:\n{transcript}"
 
 
-def _rate_limit() -> None:
-    """Enforce minimum interval between API requests."""
-    global _last_request_time
-    now = time.monotonic()
-    wait = _MIN_REQUEST_INTERVAL - (now - _last_request_time)
-    if wait > 0:
-        time.sleep(wait)
-    _last_request_time = time.monotonic()
+def summarize_text(transcript: str, style: str) -> str:
+    """
+    Summarize transcript text.
+
+    @transcript: The transcript body.
+    @style: Either 'concise' or 'bullet_points'.
+    @return: The summary text.
+    """
+    if not transcript.strip():
+        raise LLMError("Transcript is empty")
+    return generate(_build_prompt(transcript, style))
 
 
 def summarize_file(
@@ -68,32 +54,8 @@ def summarize_file(
     @return: (success, error_message) tuple.
     """
     try:
-        from google import genai  # pylint: disable=import-outside-toplevel
-
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
-            return False, "GEMINI_API_KEY not set"
-
-        text = transcript_path.read_text(encoding="utf-8")
-        if not text.strip():
-            return False, "Transcript is empty"
-
-        prompt = _build_prompt(text, style)
-
-        _rate_limit()
-
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-        )
-
-        summary = response.text
-        if not summary:
-            return False, "Gemini returned empty response"
-
+        summary = summarize_text(transcript_path.read_text(encoding="utf-8"), style)
         summary_path.write_text(summary, encoding="utf-8")
         return True, None
-
     except Exception as e:  # pylint: disable=broad-exception-caught
         return False, str(e)

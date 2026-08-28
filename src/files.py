@@ -18,19 +18,25 @@ _BACK = "BACK"
 _BACK_LABEL = [("bold", "BACK")]
 
 
-def _scan_all_files() -> tuple[list[Path], list[Path]]:
-    """Return (audio_files, transcript_files) from their respective directories."""
-    audio_files = []
-    for ext in config.FILE_EXTENSIONS:
-        audio_files.extend(config.DEFAULT_INPUT_DIR.glob(f"*{ext}"))
-    audio_files = sorted(set(audio_files), key=lambda p: p.name.lower())
+_OUTPUT_SUFFIXES = (".txt", ".md", ".srt", ".vtt", ".json")
 
-    transcript_files = sorted(
-        config.DEFAULT_OUTPUT_DIR.glob("*.txt"),
+
+def _scan_all_files() -> tuple[list[Path], list[Path]]:
+    """Return (media_files, output_files) from their respective directories."""
+    media_files = []
+    for ext in config.MEDIA_EXTENSIONS:
+        media_files.extend(config.DEFAULT_INPUT_DIR.glob(f"*{ext}"))
+    media_files = sorted(set(media_files), key=lambda p: p.name.lower())
+
+    output_files = sorted(
+        (
+            f for f in config.DEFAULT_OUTPUT_DIR.iterdir()
+            if f.is_file() and f.suffix.lower() in _OUTPUT_SUFFIXES
+        ),
         key=lambda p: p.name.lower(),
     )
 
-    return audio_files, transcript_files
+    return media_files, output_files
 
 
 def _show_file_listing(audio_files: list[Path], transcript_files: list[Path]) -> None:
@@ -53,10 +59,7 @@ def _show_file_listing(audio_files: list[Path], transcript_files: list[Path]) ->
 
 def _view_transcript() -> None:
     """Select and preview a transcript file, with option to open in editor."""
-    transcripts = sorted(
-        config.DEFAULT_OUTPUT_DIR.glob("*.txt"),
-        key=lambda p: p.name.lower(),
-    )
+    _, transcripts = _scan_all_files()
 
     if not transcripts:
         console.print("\n[yellow]No transcript files found.[/yellow]")
