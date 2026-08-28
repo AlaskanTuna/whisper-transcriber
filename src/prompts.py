@@ -60,6 +60,10 @@ RULES -- these are correctness requirements, not style preferences:
   into readable turns. "we don't we don't restrict to like a university" becomes
   "we don't restrict to a university". Do NOT paraphrase away substance, hedging or
   qualifications -- "a few only" must not become "several".
+- Restore sentence case and punctuation. The recogniser often returns lowercase,
+  unpunctuated runs; the finished document must read as properly written prose from
+  the first section to the last. Apply this to EVERY section, including the final
+  ones -- consistency across the whole document matters as much as within a section.
 - Write timestamps as [HH:MM:SS], seconds precision, exactly as they appear in the
   portion you are given.
 - Markdown must be real Markdown: a blank line between every speaker turn and every
